@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 VERSION=$(node -p "require('./package.json').version")
-VSIX_NAME="super-ask-${VERSION}.vsix"
+VSIX_NAME="super-ask-vscode-${VERSION}.vsix"
 
 if [ ! -d "node_modules" ]; then
   echo "[1/3] Installing dependencies..."

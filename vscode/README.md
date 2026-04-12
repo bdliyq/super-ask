@@ -30,7 +30,7 @@ A Language Model Tool that enables AI to report progress and collect user feedba
 ```bash
 cd vscode
 bash build.sh
-code --install-extension super-ask.vsix
+code --install-extension super-ask-vscode-<version>.vsix
 ```
 
 **Option B: Debug mode**
@@ -137,7 +137,7 @@ vscode/
 ```bash
 cd vscode
 bash build.sh
-code --install-extension super-ask.vsix
+code --install-extension super-ask-vscode-<version>.vsix
 ```
 
 **方式二：调试模式运行**

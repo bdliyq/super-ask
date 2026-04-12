@@ -19,7 +19,7 @@ Super Ask enables AI to report progress and collect user feedback during task ex
 ```bash
 cd vscode
 bash build.sh
-code --install-extension super-ask-1.0.0.vsix
+code --install-extension super-ask-vscode-1.0.0.vsix
 ```
 
 See the [VSCode Extension README](./vscode/README.md) for detailed usage instructions.
@@ -47,7 +47,7 @@ Super Ask 让 AI 在任务执行过程中向用户汇报进度并获取反馈，
 ```bash
 cd vscode
 bash build.sh
-code --install-extension super-ask-1.0.0.vsix
+code --install-extension super-ask-vscode-1.0.0.vsix
 ```
 
 详细使用说明见 [VSCode 插件 README](./vscode/README.md)。
