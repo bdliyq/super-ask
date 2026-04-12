@@ -1,5 +1,57 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
+import { marked } from 'marked';
+import { markedHighlight } from 'marked-highlight';
+import hljs from 'highlight.js/lib/core';
+import javascript from 'highlight.js/lib/languages/javascript';
+import typescript from 'highlight.js/lib/languages/typescript';
+import python from 'highlight.js/lib/languages/python';
+import bash from 'highlight.js/lib/languages/bash';
+import json from 'highlight.js/lib/languages/json';
+import css from 'highlight.js/lib/languages/css';
+import xml from 'highlight.js/lib/languages/xml';
+import markdown from 'highlight.js/lib/languages/markdown';
+import sql from 'highlight.js/lib/languages/sql';
+import yaml from 'highlight.js/lib/languages/yaml';
+import java from 'highlight.js/lib/languages/java';
+import go from 'highlight.js/lib/languages/go';
+import rust from 'highlight.js/lib/languages/rust';
+import cpp from 'highlight.js/lib/languages/cpp';
+import csharp from 'highlight.js/lib/languages/csharp';
+import diff from 'highlight.js/lib/languages/diff';
+import shell from 'highlight.js/lib/languages/shell';
+import dockerfile from 'highlight.js/lib/languages/dockerfile';
+
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('js', javascript);
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('ts', typescript);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('py', python);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('css', css);
+hljs.registerLanguage('xml', xml);
+hljs.registerLanguage('html', xml);
+hljs.registerLanguage('markdown', markdown);
+hljs.registerLanguage('md', markdown);
+hljs.registerLanguage('sql', sql);
+hljs.registerLanguage('yaml', yaml);
+hljs.registerLanguage('yml', yaml);
+hljs.registerLanguage('java', java);
+hljs.registerLanguage('go', go);
+hljs.registerLanguage('rust', rust);
+hljs.registerLanguage('rs', rust);
+hljs.registerLanguage('cpp', cpp);
+hljs.registerLanguage('c', cpp);
+hljs.registerLanguage('csharp', csharp);
+hljs.registerLanguage('cs', csharp);
+hljs.registerLanguage('diff', diff);
+hljs.registerLanguage('shell', shell);
+hljs.registerLanguage('sh', bash);
+hljs.registerLanguage('zsh', bash);
+hljs.registerLanguage('dockerfile', dockerfile);
+hljs.registerLanguage('docker', dockerfile);
 
 export interface FeedbackRequest {
   invocationId: string;
@@ -47,7 +99,35 @@ export class PanelManager implements vscode.WebviewViewProvider {
   private tabs = new Map<string, TabInfo>();
   private disposables: vscode.Disposable[] = [];
 
-  constructor(private readonly extensionUri: vscode.Uri) {}
+  constructor(private readonly extensionUri: vscode.Uri) {
+    marked.use(
+      markedHighlight({
+        highlight(code: string, lang: string) {
+          if (lang && hljs.getLanguage(lang)) {
+            return hljs.highlight(code, { language: lang }).value;
+          }
+          return hljs.highlightAuto(code).value;
+        },
+      }),
+    );
+
+    const renderer = new marked.Renderer();
+    const originalLinkRenderer = renderer.link.bind(renderer);
+    renderer.link = function (token) {
+      const html = originalLinkRenderer(token);
+      return html.replace('<a ', '<a target="_blank" rel="noopener" ');
+    };
+    marked.setOptions({
+      gfm: true,
+      breaks: true,
+      renderer,
+    });
+  }
+
+  private renderMarkdownToHtml(text: string): string {
+    if (!text) return '';
+    return marked.parse(text) as string;
+  }
 
   resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -185,9 +265,10 @@ export class PanelManager implements vscode.WebviewViewProvider {
         pendingInvocationId: hasPending ? lastEntry.invocationId : null,
         history: tab.history.map((h) => ({
           invocationId: h.invocationId,
-          summary: h.summary,
-          question: h.question,
+          summaryHtml: this.renderMarkdownToHtml(h.summary),
+          questionHtml: this.renderMarkdownToHtml(h.question),
           feedback: h.feedback,
+          feedbackHtml: h.feedback ? this.renderMarkdownToHtml(h.feedback) : null,
           timestamp: h.timestamp,
           feedbackTimestamp: h.feedbackTimestamp,
         })),
@@ -233,13 +314,16 @@ export class PanelManager implements vscode.WebviewViewProvider {
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
     body {
       font-family: var(--vscode-font-family);
       font-size: var(--vscode-font-size);
       color: var(--vscode-foreground);
       background: var(--vscode-editor-background);
-      padding: 0;
-      height: 100vh;
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -307,7 +391,6 @@ export class PanelManager implements vscode.WebviewViewProvider {
     .history-entry {
       border: 1px solid var(--vscode-widget-border);
       border-radius: var(--radius);
-      overflow: hidden;
       flex-shrink: 0;
     }
     .history-entry.completed { opacity: 0.75; }
@@ -330,32 +413,115 @@ export class PanelManager implements vscode.WebviewViewProvider {
 
     .entry-body { padding: var(--gap); }
 
-    /* ── Report card ── */
-    .summary-card {
+    /* ── Markdown content (shared by summary-card and question-text) ── */
+    .markdown-body {
       line-height: 1.6;
       word-wrap: break-word;
       overflow-wrap: break-word;
     }
-    .summary-card h1, .summary-card h2, .summary-card h3 {
-      margin-top: 0.5em; margin-bottom: 0.3em;
+    .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+      margin-top: 0.8em; margin-bottom: 0.4em;
       color: var(--vscode-foreground);
     }
-    .summary-card h1 { font-size: 1.3em; }
-    .summary-card h2 { font-size: 1.15em; }
-    .summary-card h3 { font-size: 1.05em; }
-    .summary-card code {
+    .markdown-body h1 { font-size: 1.3em; border-bottom: 1px solid var(--vscode-widget-border); padding-bottom: 0.3em; }
+    .markdown-body h2 { font-size: 1.15em; border-bottom: 1px solid var(--vscode-widget-border); padding-bottom: 0.2em; }
+    .markdown-body h3 { font-size: 1.05em; }
+    .markdown-body h4 { font-size: 1em; }
+    .markdown-body code {
       background: var(--vscode-textCodeBlock-background);
       padding: 1px 4px; border-radius: 3px;
       font-family: var(--vscode-editor-font-family); font-size: 0.9em;
     }
-    .summary-card pre {
+    .markdown-body pre {
       background: var(--vscode-textCodeBlock-background);
       padding: 10px; border-radius: var(--radius);
       overflow-x: auto; margin: 0.5em 0;
     }
-    .summary-card pre code { background: none; padding: 0; }
-    .summary-card ul, .summary-card ol { padding-left: 1.5em; margin: 0.3em 0; }
-    .summary-card p { margin: 0.4em 0; }
+    .markdown-body pre code { background: none; padding: 0; display: block; white-space: pre; }
+    .markdown-body ul, .markdown-body ol { padding-left: 1.5em; margin: 0.3em 0; }
+    .markdown-body li { margin: 0.15em 0; }
+    .markdown-body li > ul, .markdown-body li > ol { margin: 0.1em 0; }
+    .markdown-body p { margin: 0.4em 0; }
+    .markdown-body a {
+      color: var(--vscode-textLink-foreground);
+      text-decoration: none;
+    }
+    .markdown-body a:hover { text-decoration: underline; }
+    .markdown-body blockquote {
+      border-left: 3px solid var(--vscode-textBlockQuote-border, var(--vscode-focusBorder));
+      padding: 4px 12px;
+      margin: 0.5em 0;
+      color: var(--vscode-descriptionForeground);
+      background: var(--vscode-textBlockQuote-background, transparent);
+    }
+    .markdown-body blockquote p { margin: 0.2em 0; }
+    .markdown-body table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.5em 0;
+    }
+    .markdown-body th, .markdown-body td {
+      border: 1px solid var(--vscode-widget-border);
+      padding: 4px 8px;
+      text-align: left;
+    }
+    .markdown-body th {
+      background: var(--vscode-sideBarSectionHeader-background, var(--vscode-editor-background));
+      font-weight: 600;
+    }
+    .markdown-body hr {
+      border: none;
+      border-top: 1px solid var(--vscode-widget-border);
+      margin: 0.8em 0;
+    }
+    .markdown-body img { max-width: 100%; }
+    .markdown-body strong { font-weight: 600; }
+    .markdown-body > *:first-child { margin-top: 0; }
+    .markdown-body > *:last-child { margin-bottom: 0; }
+
+    /* ── Task list (GFM checkboxes) ── */
+    .markdown-body ul.contains-task-list,
+    .markdown-body .task-list-item { list-style: none; }
+    .markdown-body ul.contains-task-list { padding-left: 0.5em; }
+    .markdown-body .task-list-item input[type="checkbox"] {
+      margin-right: 6px;
+      vertical-align: middle;
+      pointer-events: none;
+    }
+
+    /* ── Code syntax highlighting (VSCode theme-aware) ── */
+    .hljs { color: var(--vscode-editor-foreground); }
+    body.vscode-dark .hljs-comment, body.vscode-dark .hljs-quote { color: #6a9955; font-style: italic; }
+    body.vscode-dark .hljs-keyword, body.vscode-dark .hljs-selector-tag, body.vscode-dark .hljs-literal { color: #569cd6; }
+    body.vscode-dark .hljs-string, body.vscode-dark .hljs-addition { color: #ce9178; }
+    body.vscode-dark .hljs-number { color: #b5cea8; }
+    body.vscode-dark .hljs-built_in { color: #4ec9b0; }
+    body.vscode-dark .hljs-type, body.vscode-dark .hljs-class .hljs-title { color: #4ec9b0; }
+    body.vscode-dark .hljs-title.function_, body.vscode-dark .hljs-function .hljs-title { color: #dcdcaa; }
+    body.vscode-dark .hljs-variable, body.vscode-dark .hljs-attr { color: #9cdcfe; }
+    body.vscode-dark .hljs-meta, body.vscode-dark .hljs-meta .hljs-keyword { color: #c586c0; }
+    body.vscode-dark .hljs-deletion { color: #ce9178; text-decoration: line-through; }
+    body.vscode-dark .hljs-regexp { color: #d16969; }
+    body.vscode-dark .hljs-symbol { color: #b5cea8; }
+    body.vscode-dark .hljs-tag { color: #569cd6; }
+    body.vscode-dark .hljs-name { color: #4ec9b0; }
+    body.vscode-dark .hljs-selector-class, body.vscode-dark .hljs-selector-id { color: #d7ba7d; }
+
+    body.vscode-light .hljs-comment, body.vscode-light .hljs-quote { color: #008000; font-style: italic; }
+    body.vscode-light .hljs-keyword, body.vscode-light .hljs-selector-tag, body.vscode-light .hljs-literal { color: #0000ff; }
+    body.vscode-light .hljs-string, body.vscode-light .hljs-addition { color: #a31515; }
+    body.vscode-light .hljs-number { color: #098658; }
+    body.vscode-light .hljs-built_in { color: #267f99; }
+    body.vscode-light .hljs-type, body.vscode-light .hljs-class .hljs-title { color: #267f99; }
+    body.vscode-light .hljs-title.function_, body.vscode-light .hljs-function .hljs-title { color: #795e26; }
+    body.vscode-light .hljs-variable, body.vscode-light .hljs-attr { color: #001080; }
+    body.vscode-light .hljs-meta, body.vscode-light .hljs-meta .hljs-keyword { color: #af00db; }
+    body.vscode-light .hljs-deletion { color: #a31515; text-decoration: line-through; }
+    body.vscode-light .hljs-regexp { color: #811f3f; }
+    body.vscode-light .hljs-symbol { color: #098658; }
+    body.vscode-light .hljs-tag { color: #800000; }
+    body.vscode-light .hljs-name { color: #267f99; }
+    body.vscode-light .hljs-selector-class, body.vscode-light .hljs-selector-id { color: #800000; }
 
     /* ── Question ── */
     .question-card {
@@ -384,7 +550,7 @@ export class PanelManager implements vscode.WebviewViewProvider {
       color: var(--vscode-descriptionForeground); margin-bottom: 4px;
     }
     .feedback-record-text {
-      white-space: pre-wrap; line-height: 1.5;
+      line-height: 1.5;
       word-wrap: break-word; overflow-wrap: break-word;
     }
 
@@ -463,22 +629,6 @@ export class PanelManager implements vscode.WebviewViewProvider {
     const feedbackInput = document.getElementById('feedbackInput');
     const submitBtn = document.getElementById('submitBtn');
 
-    function renderMarkdown(text) {
-      if (!text) return '';
-      let html = text
-        .replace(/\`\`\`(\\w*)?\\n([\\s\\S]*?)\`\`\`/g, '<pre><code>$2</code></pre>')
-        .replace(/\`([^\`]+)\`/g, '<code>$1</code>')
-        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-        .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
-        .replace(/\\*(.+?)\\*/g, '<em>$1</em>')
-        .replace(/^[\\-\\*] (.+)$/gm, '<li>$1</li>')
-        .replace(/^(?!<[hluop]|<li)(.+)$/gm, '<p>$1</p>');
-      html = html.replace(/(<li>.*?<\\/li>\\n?)+/gs, function(m) { return '<ul>' + m + '</ul>'; });
-      return html;
-    }
-
     function escapeHtml(str) {
       if (!str) return '';
       return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -526,16 +676,16 @@ export class PanelManager implements vscode.WebviewViewProvider {
         html += '<span>#' + (idx + 1) + ' · asked ' + formatTime(entry.timestamp) + feedbackTimeStr + ' · ' + statusLabel + '</span>';
         html += '</div>';
         html += '<div class="entry-body">';
-        html += '<div class="summary-card">' + renderMarkdown(entry.summary) + '</div>';
+        html += '<div class="summary-card markdown-body">' + (entry.summaryHtml || '') + '</div>';
         html += '<div class="question-card">';
         html += '<div class="question-label">Question</div>';
-        html += '<div class="question-text">' + escapeHtml(entry.question) + '</div>';
+        html += '<div class="question-text markdown-body">' + (entry.questionHtml || '') + '</div>';
         html += '</div>';
 
         if (entry.feedback !== null && !isPending) {
           html += '<div class="feedback-record">';
           html += '<div class="feedback-record-label">Your Feedback</div>';
-          html += '<div class="feedback-record-text">' + escapeHtml(entry.feedback) + '</div>';
+          html += '<div class="feedback-record-text markdown-body">' + (entry.feedbackHtml || escapeHtml(entry.feedback)) + '</div>';
           html += '</div>';
         }
 
