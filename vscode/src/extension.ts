@@ -11,6 +11,14 @@ export function activate(context: vscode.ExtensionContext) {
 
   panelManager = new PanelManager(context.extensionUri);
 
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      'superAsk.feedbackView',
+      panelManager,
+      { webviewOptions: { retainContextWhenHidden: true } }
+    )
+  );
+
   const tool = new SuperAskTool(panelManager);
   context.subscriptions.push(
     vscode.lm.registerTool('super-ask_feedback', tool)

@@ -41,13 +41,41 @@ interface TabInfo {
  * - invocationId (unique per invoke) -> precise Promise resolution
  * - chatSessionId (shared within a chat) -> tab grouping for the same task
  */
-export class PanelManager {
-  private panel: vscode.WebviewPanel | undefined;
+export class PanelManager implements vscode.WebviewViewProvider {
+  private view: vscode.WebviewView | undefined;
   private pendingSessions = new Map<string, PendingSession>();
   private tabs = new Map<string, TabInfo>();
   private disposables: vscode.Disposable[] = [];
 
   constructor(private readonly extensionUri: vscode.Uri) {}
+
+  resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    _context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken
+  ) {
+    this.view = webviewView;
+
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [
+        vscode.Uri.joinPath(this.extensionUri, 'src', 'webview', 'media'),
+        vscode.Uri.joinPath(this.extensionUri, 'dist'),
+      ],
+    };
+
+    webviewView.webview.html = this.getWebviewHtml(webviewView.webview);
+
+    webviewView.webview.onDidReceiveMessage(
+      (msg) => this.handleWebviewMessage(msg),
+      undefined,
+      this.disposables
+    );
+
+    webviewView.onDidDispose(() => {
+      this.view = undefined;
+    }, undefined, this.disposables);
+  }
 
   async requestFeedback(
     req: Omit<FeedbackRequest, 'invocationId'> & { invocationId?: string },
@@ -97,58 +125,29 @@ export class PanelManager {
       this.disposables.push(cancellationListener);
     });
 
-    this.ensurePanelVisible();
+    this.revealView();
     this.syncWebview();
     this.focusTab(chatSessionId);
 
     return promise;
   }
 
-  private ensurePanelVisible() {
-    if (this.panel) {
-      this.panel.reveal(vscode.ViewColumn.Beside, true);
-      return;
+  private revealView() {
+    if (this.view) {
+      this.view.show(true);
+    } else {
+      vscode.commands.executeCommand('superAsk.feedbackView.focus');
     }
-
-    this.panel = vscode.window.createWebviewPanel(
-      'superAskFeedback',
-      'Super Ask',
-      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [
-          vscode.Uri.joinPath(this.extensionUri, 'src', 'webview', 'media'),
-          vscode.Uri.joinPath(this.extensionUri, 'dist'),
-        ],
-      }
-    );
-
-    this.panel.iconPath = new vscode.ThemeIcon('comment-discussion');
-    this.panel.webview.html = this.getWebviewHtml(this.panel.webview);
-
-    this.panel.webview.onDidReceiveMessage(
-      (msg) => this.handleWebviewMessage(msg),
-      undefined,
-      this.disposables
-    );
-
-    this.panel.onDidDispose(() => {
-      this.panel = undefined;
-      for (const [, session] of this.pendingSessions) {
-        session.reject(new Error('WebView panel was closed'));
-      }
-      this.pendingSessions.clear();
-    }, undefined, this.disposables);
   }
 
   private handleWebviewMessage(msg: { type: string; invocationId?: string; feedback?: string; chatSessionId?: string; title?: string }) {
-    if (msg.type === 'tabSwitched' && msg.title && this.panel) {
-      this.panel.title = `Super Ask · ${msg.title}`;
+    if (msg.type === 'tabSwitched' && msg.title) {
+      if (this.view) {
+        this.view.title = msg.title;
+      }
     } else if (msg.type === 'submit' && msg.invocationId && msg.feedback !== undefined) {
       const session = this.pendingSessions.get(msg.invocationId);
       if (session) {
-        
         const tab = this.tabs.get(session.chatSessionId);
         if (tab) {
           const entry = tab.history.find((h) => h.invocationId === msg.invocationId);
@@ -172,7 +171,7 @@ export class PanelManager {
    * Tabs are always preserved regardless of pending state changes.
    */
   private syncWebview() {
-    if (!this.panel) return;
+    if (!this.view) return;
 
     const tabsData = Array.from(this.tabs.values()).map((tab) => {
       const lastEntry = tab.history[tab.history.length - 1];
@@ -196,16 +195,16 @@ export class PanelManager {
       };
     });
 
-    this.panel.webview.postMessage({ type: 'update', tabs: tabsData });
+    this.view.webview.postMessage({ type: 'update', tabs: tabsData });
   }
 
   private focusTab(chatSessionId: string) {
-    if (!this.panel) return;
+    if (!this.view) return;
     const tab = this.tabs.get(chatSessionId);
     if (tab) {
-      this.panel.title = `Super Ask · ${tab.title}`;
+      this.view.title = tab.title;
     }
-    this.panel.webview.postMessage({ type: 'focusTab', chatSessionId });
+    this.view.webview.postMessage({ type: 'focusTab', chatSessionId });
   }
 
   private extractTitle(summary: string): string {
@@ -220,7 +219,7 @@ export class PanelManager {
     const nonce = crypto.randomUUID().replace(/-/g, '');
 
     return /*html*/ `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -416,7 +415,7 @@ export class PanelManager {
     .quick-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
 
     .feedback-input {
-      width: 100%; min-height: 80px; max-height: 200px; resize: vertical;
+      width: 100%; min-height: 60px; max-height: 150px; resize: vertical;
       padding: 8px;
       font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
       color: var(--vscode-input-foreground); background: var(--vscode-input-background);
@@ -546,7 +545,6 @@ export class PanelManager {
 
       contentArea.innerHTML = html;
 
-      
       if (tab.hasPending && tab.pendingInvocationId) {
         feedbackArea.style.display = 'flex';
         submitBtn.dataset.invocationId = tab.pendingInvocationId;
@@ -557,7 +555,6 @@ export class PanelManager {
       }
       updateSubmitState();
 
-      
       requestAnimationFrame(function() {
         contentArea.scrollTop = contentArea.scrollHeight;
         if (tab.hasPending && tab.pendingInvocationId) {
@@ -635,7 +632,6 @@ export class PanelManager {
   }
 
   dispose() {
-    this.panel?.dispose();
     for (const d of this.disposables) {
       d.dispose();
     }

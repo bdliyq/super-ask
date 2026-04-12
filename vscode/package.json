@@ -14,6 +14,24 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "superAskPanel",
+          "title": "Super Ask",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "views": {
+      "superAskPanel": [
+        {
+          "type": "webview",
+          "id": "superAsk.feedbackView",
+          "name": "Super Ask"
+        }
+      ]
+    },
     "languageModelTools": [
       {
         "name": "super-ask_feedback",

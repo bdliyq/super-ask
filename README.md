@@ -24,6 +24,12 @@ code --install-extension super-ask-1.0.0.vsix
 
 See the [VSCode Extension README](./vscode/README.md) for detailed usage instructions.
 
+### Donate
+
+If you find this project helpful, feel free to buy me a coffee!
+
+<img src="./assets/donate.jpg" alt="Donate QR Code" width="300">
+
 ---
 
 ## 中文
@@ -45,3 +51,9 @@ code --install-extension super-ask-1.0.0.vsix
 ```
 
 详细使用说明见 [VSCode 插件 README](./vscode/README.md)。
+
+### 捐赠
+
+如果这个项目对你有帮助，欢迎请我喝杯咖啡！
+
+<img src="./assets/donate.jpg" alt="捐赠二维码" width="300">
