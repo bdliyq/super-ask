@@ -2,7 +2,7 @@
   "name": "super-ask",
   "displayName": "Super Ask",
   "description": "AI reports progress and collects user feedback within a single request loop",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "leoli",
   "engines": {
     "vscode": "^1.93.0"
