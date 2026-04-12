@@ -1,0 +1,67 @@
+{
+  "name": "super-ask",
+  "displayName": "Super Ask",
+  "description": "AI reports progress and collects user feedback within a single request loop",
+  "version": "1.0.0",
+  "publisher": "leoli",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languageModelTools": [
+      {
+        "name": "super-ask_feedback",
+        "displayName": "Super Ask",
+        "modelDescription": "Call this tool to report progress and get user feedback BEFORE committing changes, completing major steps, or when you need clarification. Pass a markdown summary of what you have done and a specific question. On the FIRST call, provide a short title describing the task and omit chatSessionId. The tool response will include a chatSessionId — you MUST include it in ALL subsequent calls for the same task to maintain conversation continuity.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "superAsk",
+        "icon": "$(comment-discussion)",
+        "userDescription": "AI reports progress and collects user feedback",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "A short title for this task (e.g. 'Refactor auth module'). Required on first call, optional on subsequent calls."
+            },
+            "chatSessionId": {
+              "type": "string",
+              "description": "Session ID returned by a previous super-ask call. Omit on first call; include on all subsequent calls for the same task."
+            },
+            "summary": {
+              "type": "string",
+              "description": "Markdown formatted summary of what you have done so far, including key changes, decisions made, and current status."
+            },
+            "question": {
+              "type": "string",
+              "description": "A specific question for the user. What do you need them to review, confirm, or decide?"
+            }
+          },
+          "required": [
+            "title",
+            "summary",
+            "question"
+          ]
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.93.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  }
+}
