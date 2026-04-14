@@ -1,0 +1,20 @@
+{
+  "name": "super-ask",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "super-ask": "dist/index.js" },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "ws": "^8.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "tsx": "^4.0.0",
+    "tsup": "^8.0.0",
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.0.0"
+  }
+}

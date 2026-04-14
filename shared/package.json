@@ -1,0 +1,8 @@
+{
+  "name": "@super-ask/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "types.ts",
+  "types": "types.ts"
+}

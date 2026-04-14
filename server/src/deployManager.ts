@@ -1,0 +1,843 @@
+import {
+  mkdir,
+  unlink,
+  stat,
+  rm,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import type {
+  DeployPlatform,
+  DeployRequest,
+  DeployResponse,
+  DeployScope,
+  DeployStep,
+  DeployStatusResponse,
+  UndeployRequest,
+  UndeployResponse,
+} from "../../shared/types";
+import { SUPER_ASK_DIR } from "./config";
+
+/** 读取文本文件 */
+async function readFileContent(path: string): Promise<string> {
+  return readFile(path, "utf-8");
+}
+
+/** 写入文本文件 */
+async function writeFileContent(path: string, content: string): Promise<void> {
+  await writeFile(path, content, "utf-8");
+}
+
+function ensureTrailingNewline(content: string): string {
+  return content.endsWith("\n") ? content : `${content}\n`;
+}
+
+/** 去掉 .mdc 的 YAML frontmatter（--- ... ---），供写入 copilot-instructions.md */
+function stripMdcFrontmatter(raw: string): string {
+  const s = raw.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  if (!s.startsWith("---\n")) {
+    return s.trim();
+  }
+  const rest = s.slice(4);
+  const idx = rest.indexOf("\n---\n");
+  if (idx === -1) {
+    return s.trim();
+  }
+  return rest.slice(idx + "\n---\n".length).trimStart();
+}
+
+const CODEX_MARKER_BEGIN = "<!-- SUPER-ASK-BEGIN -->";
+const CODEX_MARKER_END = "<!-- SUPER-ASK-END -->";
+
+/**
+ * 向 AGENTS.md 中注入 super-ask 规则（用标记注释包裹），已存在则替换
+ */
+function injectCodexBlock(existingContent: string, rulesContent: string): string {
+  const block = `${CODEX_MARKER_BEGIN}\n${rulesContent.trim()}\n${CODEX_MARKER_END}`;
+  const beginIdx = existingContent.indexOf(CODEX_MARKER_BEGIN);
+  const endIdx = existingContent.indexOf(CODEX_MARKER_END);
+  if (beginIdx !== -1 && endIdx !== -1 && endIdx > beginIdx) {
+    return (
+      existingContent.slice(0, beginIdx).trimEnd() +
+      "\n\n" +
+      block +
+      "\n" +
+      existingContent.slice(endIdx + CODEX_MARKER_END.length).trimStart()
+    ).trim() + "\n";
+  }
+  const trimmed = existingContent.trim();
+  if (!trimmed) return block + "\n";
+  return trimmed + "\n\n" + block + "\n";
+}
+
+/**
+ * 从 AGENTS.md 中移除 super-ask 标记注释块
+ */
+function removeCodexBlock(content: string): string {
+  const beginIdx = content.indexOf(CODEX_MARKER_BEGIN);
+  const endIdx = content.indexOf(CODEX_MARKER_END);
+  if (beginIdx === -1 || endIdx === -1 || endIdx <= beginIdx) return content;
+  const before = content.slice(0, beginIdx).trimEnd();
+  const after = content.slice(endIdx + CODEX_MARKER_END.length).trimStart();
+  if (!before && !after) return "";
+  if (!before) return after.trim() + "\n";
+  if (!after) return before.trim() + "\n";
+  return before + "\n\n" + after.trim() + "\n";
+}
+
+/**
+ * 将规则文件部署到 Cursor / VSCode / Codex（工作区或用户全局），或卸载与清理全局配置
+ */
+export class DeployManager {
+  /** super-ask 项目根目录（含 rules/） */
+  private readonly projectRoot: string;
+
+  constructor(projectRoot: string) {
+    this.projectRoot = projectRoot;
+  }
+
+  /** 执行单步：pending → running → success | failed，失败写入 detail，不向外抛错 */
+  private async runStep(
+    steps: DeployStep[],
+    id: string,
+    name: string,
+    action: () => Promise<void>,
+    detail?: string
+  ): Promise<void> {
+    const step: DeployStep = { id, name, status: "pending", detail };
+    steps.push(step);
+    step.status = "running";
+    try {
+      await action();
+      step.status = "success";
+    } catch (e) {
+      step.status = "failed";
+      const errMsg = e instanceof Error ? e.message : String(e);
+      step.detail = detail ? `${detail}\n${errMsg}` : errMsg;
+    }
+  }
+
+  private rulesPath(name: string): string {
+    return join(this.projectRoot, "rules", name);
+  }
+
+  private renderRuleTemplate(content: string): string {
+    const replacements = new Map<string, string>([
+      ["{{SUPER_ASK_ROOT}}", this.projectRoot],
+      ["{{SUPER_ASK_CLI}}", join(this.projectRoot, "cli", "super-ask.py")],
+      ["{{SUPER_ASK_INSTALL_SH}}", join(this.projectRoot, "install.sh")],
+    ]);
+
+    let rendered = content;
+    for (const [key, value] of replacements) {
+      rendered = rendered.split(key).join(value);
+    }
+    return rendered;
+  }
+
+  private async readRenderedRule(name: string): Promise<string> {
+    const raw = await readFileContent(this.rulesPath(name));
+    return this.renderRuleTemplate(raw);
+  }
+
+  /**
+   * 部署到 Cursor：.cursor/rules/ 下 super-ask.mdc（源文件 super-ask-cursor.mdc）
+   */
+  async deployCursor(workspacePath: string): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const root = resolve(workspacePath);
+    const rulesDir = join(root, ".cursor", "rules");
+    const dest = join(rulesDir, "super-ask.mdc");
+    const src = this.rulesPath("super-ask-cursor.mdc");
+
+    await this.runStep(steps, "check_workspace", "检查工作区路径是否存在", async () => {
+      const st = await stat(root);
+      if (!st.isDirectory()) {
+        throw new Error("路径存在但不是目录");
+      }
+    }, root);
+
+    await this.runStep(steps, "create_rules_dir", "创建 .cursor/rules 目录", async () => {
+      await mkdir(rulesDir, { recursive: true });
+    }, rulesDir);
+
+    await this.runStep(steps, "copy_rules", "复制 super-ask.mdc", async () => {
+      const rendered = await this.readRenderedRule("super-ask-cursor.mdc");
+      await writeFileContent(dest, ensureTrailingNewline(rendered));
+    }, `${src} → ${dest}`);
+
+    await this.runStep(steps, "clean_legacy", "清理旧版 super-ask-cursor.mdc", async () => {
+      try { await unlink(join(rulesDir, "super-ask-cursor.mdc")); } catch { /* 不存在 */ }
+    }, join(rulesDir, "super-ask-cursor.mdc"));
+
+    await this.runStep(steps, "verify", "验证 Cursor 规则文件已写入", async () => {
+      await stat(dest);
+    }, dest);
+
+    return steps;
+  }
+
+  /**
+   * 部署到 VSCode Copilot（工作区级）：.copilot/instructions/super-ask.instructions.md
+   */
+  async deployVscode(workspacePath: string): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const root = resolve(workspacePath);
+    const copilotDir = join(root, ".copilot", "instructions");
+    const destFile = join(copilotDir, "super-ask.instructions.md");
+    const srcVscodeRules = this.rulesPath("super-ask-copilot.md");
+
+    await this.runStep(steps, "check_workspace", "检查工作区路径是否存在", async () => {
+      const st = await stat(root);
+      if (!st.isDirectory()) {
+        throw new Error("路径存在但不是目录");
+      }
+    }, root);
+
+    await this.runStep(steps, "create_copilot_dir", "创建 .copilot/instructions 目录", async () => {
+      await mkdir(copilotDir, { recursive: true });
+    }, copilotDir);
+
+    await this.runStep(steps, "deploy_instructions", "部署 super-ask.instructions.md", async () => {
+      const renderedRules = await this.readRenderedRule("super-ask-copilot.md");
+      await writeFileContent(destFile, ensureTrailingNewline(renderedRules.trimEnd()));
+    }, `${srcVscodeRules} → ${destFile}`);
+
+    await this.runStep(steps, "verify", "验证 Copilot 规则文件已写入", async () => {
+      await stat(destFile);
+    }, destFile);
+
+    return steps;
+  }
+
+  /**
+   * Cursor 用户级（全局）部署：写入 ~/.cursor/rules/ 下 super-ask.mdc（源文件 super-ask-cursor.mdc）
+   */
+  async deployCursorUser(): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const rulesDir = join(homedir(), ".cursor", "rules");
+    const dest = join(rulesDir, "super-ask.mdc");
+    const src = this.rulesPath("super-ask-cursor.mdc");
+
+    await this.runStep(steps, "create_rules_dir_user", "创建用户级 .cursor/rules 目录", async () => {
+      await mkdir(rulesDir, { recursive: true });
+    }, rulesDir);
+
+    await this.runStep(steps, "copy_rules_user", "复制 super-ask.mdc（用户级）", async () => {
+      const rendered = await this.readRenderedRule("super-ask-cursor.mdc");
+      await writeFileContent(dest, ensureTrailingNewline(rendered));
+    }, `${src} → ${dest}`);
+
+    await this.runStep(steps, "clean_legacy_user", "清理旧版 super-ask-cursor.mdc", async () => {
+      try { await unlink(join(rulesDir, "super-ask-cursor.mdc")); } catch { /* 不存在 */ }
+    }, join(rulesDir, "super-ask-cursor.mdc"));
+
+    await this.runStep(steps, "verify_user", "验证 Cursor 用户级规则文件已写入", async () => {
+      await stat(dest);
+    }, dest);
+
+    return steps;
+  }
+
+  /**
+   * VSCode 用户级（全局）部署：写入 ~/.copilot/instructions/super-ask.instructions.md
+   * VSCode 2026.2+ 支持从 ~/.copilot/instructions/ 读取自定义指令
+   */
+  async deployVscodeUser(): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const copilotDir = join(homedir(), ".copilot", "instructions");
+    const destFile = join(copilotDir, "super-ask.instructions.md");
+    const srcVscodeRules = this.rulesPath("super-ask-copilot.md");
+
+    await this.runStep(steps, "create_copilot_dir_user", "创建用户级 ~/.copilot/instructions 目录", async () => {
+      await mkdir(copilotDir, { recursive: true });
+    }, copilotDir);
+
+    await this.runStep(steps, "deploy_instructions_user", "部署 super-ask.instructions.md", async () => {
+      const renderedRules = await this.readRenderedRule("super-ask-copilot.md");
+      await writeFileContent(destFile, ensureTrailingNewline(renderedRules.trimEnd()));
+    }, `${srcVscodeRules} → ${destFile}`);
+
+    await this.runStep(steps, "verify_user_vscode", "验证 super-ask.instructions.md 已写入", async () => {
+      await stat(destFile);
+    }, destFile);
+
+    return steps;
+  }
+
+  /**
+   * Codex 用户级（全局）部署：向 ~/.codex/AGENTS.md 中注入 super-ask 标记块
+   */
+  async deployCodexUser(): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const codexDir = join(homedir(), ".codex");
+    const agentsMd = join(codexDir, "AGENTS.md");
+    const configToml = join(codexDir, "config.toml");
+    const src = this.rulesPath("super-ask-codex.md");
+
+    await this.runStep(steps, "ensure_codex_dir", "确认 ~/.codex 目录存在", async () => {
+      await mkdir(codexDir, { recursive: true });
+    }, codexDir);
+
+    await this.runStep(steps, "inject_codex_rules", "注入 super-ask 规则到 AGENTS.md", async () => {
+      const rulesContent = await this.readRenderedRule("super-ask-codex.md");
+      let existing = "";
+      try {
+        existing = await readFileContent(agentsMd);
+      } catch { /* 文件不存在 */ }
+      const updated = injectCodexBlock(existing, rulesContent);
+      await writeFileContent(agentsMd, updated);
+    }, agentsMd);
+
+    await this.runStep(steps, "set_background_timeout", "设置 config.toml background_terminal_max_timeout = 86400000", async () => {
+      let content = "";
+      try {
+        content = await readFileContent(configToml);
+      } catch { /* 文件不存在 */ }
+      const key = "background_terminal_max_timeout";
+      const re = new RegExp(`^\\s*${key}\\s*=.*$`, "m");
+      if (re.test(content)) {
+        content = content.replace(re, `${key} = 86400000`);
+      } else {
+        const line = `${key} = 86400000`;
+        const sectionRe = /^\s*\[/m;
+        const match = sectionRe.exec(content);
+        if (match && match.index !== undefined) {
+          const before = content.slice(0, match.index).trimEnd();
+          const after = content.slice(match.index);
+          content = (before ? before + "\n" : "") + line + "\n\n" + after;
+        } else {
+          content = content.trimEnd() + (content.trim() ? "\n" : "") + line + "\n";
+        }
+      }
+      await writeFileContent(configToml, content);
+    }, configToml);
+
+    await this.runStep(steps, "verify_codex_user", "验证 AGENTS.md 包含 super-ask 标记", async () => {
+      const content = await readFileContent(agentsMd);
+      if (!content.includes(CODEX_MARKER_BEGIN)) {
+        throw new Error("AGENTS.md 中未找到 super-ask 标记");
+      }
+    }, agentsMd);
+
+    return steps;
+  }
+
+  /**
+   * Codex 项目级部署：向 <project>/AGENTS.md 中注入 super-ask 标记块
+   */
+  async deployCodex(workspacePath: string): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const root = resolve(workspacePath);
+    const agentsMd = join(root, "AGENTS.md");
+    const src = this.rulesPath("super-ask-codex.md");
+
+    await this.runStep(steps, "check_workspace", "检查工作区路径是否存在", async () => {
+      const st = await stat(root);
+      if (!st.isDirectory()) {
+        throw new Error("路径存在但不是目录");
+      }
+    }, root);
+
+    await this.runStep(steps, "inject_codex_rules", "注入 super-ask 规则到 AGENTS.md", async () => {
+      const rulesContent = await this.readRenderedRule("super-ask-codex.md");
+      let existing = "";
+      try {
+        existing = await readFileContent(agentsMd);
+      } catch { /* 文件不存在 */ }
+      const updated = injectCodexBlock(existing, rulesContent);
+      await writeFileContent(agentsMd, updated);
+    }, agentsMd);
+
+    await this.runStep(steps, "verify_codex", "验证 AGENTS.md 包含 super-ask 标记", async () => {
+      const content = await readFileContent(agentsMd);
+      if (!content.includes(CODEX_MARKER_BEGIN)) {
+        throw new Error("AGENTS.md 中未找到 super-ask 标记");
+      }
+    }, agentsMd);
+
+    return steps;
+  }
+
+  /**
+   * 从 Cursor 工作区移除 super-ask 规则文件
+   */
+  async undeployCursor(workspacePath: string): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const root = resolve(workspacePath);
+    const rulesDir = join(root, ".cursor", "rules");
+    const dest = join(rulesDir, "super-ask.mdc");
+
+    await this.runStep(steps, "remove_rules", "删除 super-ask.mdc", async () => {
+      try { await unlink(dest); } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") throw e;
+      }
+    }, dest);
+
+    await this.runStep(steps, "clean_legacy", "清理旧版 super-ask-cursor.mdc", async () => {
+      try { await unlink(join(rulesDir, "super-ask-cursor.mdc")); } catch { /* 不存在 */ }
+    }, join(rulesDir, "super-ask-cursor.mdc"));
+
+    await this.runStep(steps, "verify", "验证 Cursor 规则文件已删除", async () => {
+      try {
+        await stat(dest);
+        throw new Error(`文件仍存在: ${dest}`);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        throw e;
+      }
+    }, dest);
+
+    return steps;
+  }
+
+  /**
+   * 从用户主目录 ~/.cursor/rules/ 删除 super-ask 相关 .mdc 文件
+   */
+  async undeployCursorUser(): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const rulesDir = join(homedir(), ".cursor", "rules");
+    const dest = join(rulesDir, "super-ask.mdc");
+
+    await this.runStep(steps, "remove_rules_user", "删除用户级 super-ask.mdc", async () => {
+      try { await unlink(dest); } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") throw e;
+      }
+    }, dest);
+
+    await this.runStep(steps, "clean_legacy_user", "清理旧版 super-ask-cursor.mdc", async () => {
+      try { await unlink(join(rulesDir, "super-ask-cursor.mdc")); } catch { /* 不存在 */ }
+    }, join(rulesDir, "super-ask-cursor.mdc"));
+
+    await this.runStep(steps, "verify_user", "验证 Cursor 用户级规则文件已删除", async () => {
+      try {
+        await stat(dest);
+        throw new Error(`文件仍存在: ${dest}`);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        throw e;
+      }
+    }, dest);
+
+    return steps;
+  }
+
+  /**
+   * VSCode 用户级卸载：删除 ~/.copilot/instructions/super-ask.instructions.md
+   */
+  async undeployVscodeUser(): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const destFile = join(homedir(), ".copilot", "instructions", "super-ask.instructions.md");
+
+    await this.runStep(steps, "remove_copilot_instructions_user", "删除 super-ask.instructions.md", async () => {
+      try {
+        await unlink(destFile);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") throw e;
+      }
+    }, destFile);
+
+    await this.runStep(steps, "verify_user_vscode_undeploy", "验证 super-ask 指令文件已删除", async () => {
+      try {
+        await stat(destFile);
+        throw new Error(`文件仍存在: ${destFile}`);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        if (e instanceof Error && e.message.startsWith("文件仍存在")) throw e;
+      }
+    }, destFile);
+
+    return steps;
+  }
+
+  /**
+   * 从 VSCode Copilot 工作区移除 super-ask 规则文件（.copilot/instructions/）
+   */
+  async undeployVscode(workspacePath: string): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const root = resolve(workspacePath);
+    const destFile = join(root, ".copilot", "instructions", "super-ask.instructions.md");
+
+    await this.runStep(steps, "remove_copilot_instructions", "删除 .copilot/instructions/super-ask.instructions.md", async () => {
+      try {
+        await unlink(destFile);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") throw e;
+      }
+    }, destFile);
+
+    await this.runStep(steps, "verify", "验证 Copilot 规则文件已清理", async () => {
+      try {
+        await stat(destFile);
+        throw new Error(`文件仍存在: ${destFile}`);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        if (e instanceof Error && e.message.startsWith("文件仍存在")) throw e;
+      }
+    }, destFile);
+
+    return steps;
+  }
+
+  /**
+   * Codex 用户级卸载：从 ~/.codex/AGENTS.md 中移除 super-ask 标记块
+   */
+  async undeployCodexUser(): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const agentsMd = join(homedir(), ".codex", "AGENTS.md");
+
+    await this.runStep(steps, "remove_codex_block_user", "从 AGENTS.md 移除 super-ask 标记块", async () => {
+      let content: string;
+      try {
+        content = await readFileContent(agentsMd);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        throw e;
+      }
+      if (!content.includes(CODEX_MARKER_BEGIN)) return;
+      const updated = removeCodexBlock(content);
+      if (!updated.trim()) {
+        await writeFileContent(agentsMd, "");
+      } else {
+        await writeFileContent(agentsMd, updated);
+      }
+    }, agentsMd);
+
+    await this.runStep(steps, "verify_codex_user_undeploy", "验证 super-ask 标记已移除", async () => {
+      try {
+        const content = await readFileContent(agentsMd);
+        if (content.includes(CODEX_MARKER_BEGIN)) {
+          throw new Error("AGENTS.md 中仍包含 super-ask 标记");
+        }
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        if (e instanceof Error && e.message.includes("super-ask 标记")) throw e;
+      }
+    }, agentsMd);
+
+    return steps;
+  }
+
+  /**
+   * Codex 项目级卸载：从 <project>/AGENTS.md 中移除 super-ask 标记块
+   */
+  async undeployCodex(workspacePath: string): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const root = resolve(workspacePath);
+    const agentsMd = join(root, "AGENTS.md");
+
+    await this.runStep(steps, "remove_codex_block", "从 AGENTS.md 移除 super-ask 标记块", async () => {
+      let content: string;
+      try {
+        content = await readFileContent(agentsMd);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        throw e;
+      }
+      if (!content.includes(CODEX_MARKER_BEGIN)) return;
+      const updated = removeCodexBlock(content);
+      if (!updated.trim()) {
+        try { await unlink(agentsMd); } catch { /* 忽略 */ }
+      } else {
+        await writeFileContent(agentsMd, updated);
+      }
+    }, agentsMd);
+
+    await this.runStep(steps, "verify_codex_undeploy", "验证 super-ask 标记已移除", async () => {
+      try {
+        const content = await readFileContent(agentsMd);
+        if (content.includes(CODEX_MARKER_BEGIN)) {
+          throw new Error("AGENTS.md 中仍包含 super-ask 标记");
+        }
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        if (e instanceof Error && e.message.includes("super-ask 标记")) throw e;
+      }
+    }, agentsMd);
+
+    return steps;
+  }
+
+  /**
+   * 清理 ~/.super-ask/ 下的会话、日志、配置与 PID（不停止当前 server 进程）
+   */
+  async cleanGlobalConfig(): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+
+    steps.push({
+      id: "stop_server",
+      name: "停止 server",
+      status: "skipped",
+      detail: "当前 HTTP 进程即为 super-ask server，跳过停止服务",
+    });
+
+    const sessionsPath = join(SUPER_ASK_DIR, "sessions.json");
+    const logsDir = join(SUPER_ASK_DIR, "logs");
+    const configPath = join(SUPER_ASK_DIR, "config.json");
+    const pidPath = join(SUPER_ASK_DIR, "super-ask.pid");
+
+    await this.runStep(steps, "remove_sessions", "删除 sessions.json", async () => {
+      try {
+        await unlink(sessionsPath);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") throw e;
+      }
+    }, sessionsPath);
+
+    await this.runStep(steps, "remove_logs", "删除 logs 目录", async () => {
+      await rm(logsDir, { recursive: true, force: true });
+    }, logsDir);
+
+    await this.runStep(steps, "remove_config", "删除 config.json", async () => {
+      try {
+        await unlink(configPath);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") throw e;
+      }
+    }, configPath);
+
+    await this.runStep(steps, "remove_pid", "删除 super-ask.pid", async () => {
+      try {
+        await unlink(pidPath);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") throw e;
+      }
+    }, pidPath);
+
+    return steps;
+  }
+
+  /**
+   * 探测指定范围下 Cursor / VSCode 是否已部署规则文件
+   * @param workspacePath workspace 模式下为工作区根路径；user 模式下忽略
+   * @param scope user 时检查 ~/.cursor/rules/ 与 ~/.github/copilot-instructions.md 中的 super-ask 区块；workspace 时检查给定路径
+   */
+  async checkStatus(
+    workspacePath: string,
+    scope: DeployScope = "workspace"
+  ): Promise<DeployStatusResponse> {
+    const deployed: DeployStatusResponse["deployed"] = [];
+
+    if (scope === "user") {
+      const home = homedir();
+
+      const cursorDir = join(home, ".cursor", "rules");
+      const cursorFiles: string[] = [];
+      for (const name of ["super-ask.mdc"]) {
+        const p = join(cursorDir, name);
+        try {
+          const s = await stat(p);
+          if (s.isFile()) cursorFiles.push(name);
+        } catch {
+          /* 忽略 */
+        }
+      }
+      if (cursorFiles.length > 0) {
+        deployed.push({
+          platform: "cursor",
+          workspacePath: cursorDir,
+          rulesFiles: cursorFiles,
+        });
+      }
+
+      const vscodeFiles: string[] = [];
+      const copilotDir = join(home, ".copilot", "instructions");
+      const copilotFile = join(copilotDir, "super-ask.instructions.md");
+      try {
+        const st = await stat(copilotFile);
+        if (st.isFile()) vscodeFiles.push("super-ask.instructions.md");
+      } catch { /* 不存在 */ }
+      const legacyPath = join(home, ".github", "copilot-instructions.md");
+      try {
+        const st = await stat(legacyPath);
+        if (st.isFile()) {
+          const content = await readFileContent(legacyPath);
+          if (content.includes("<!-- super-ask:begin -->")) {
+            vscodeFiles.push("copilot-instructions.md (legacy)");
+          }
+        }
+      } catch { /* 不存在 */ }
+      if (vscodeFiles.length > 0) {
+        deployed.push({
+          platform: "vscode",
+          workspacePath: copilotDir,
+          rulesFiles: vscodeFiles,
+        });
+      }
+
+      const codexAgentsMd = join(home, ".codex", "AGENTS.md");
+      try {
+        const content = await readFileContent(codexAgentsMd);
+        if (content.includes(CODEX_MARKER_BEGIN)) {
+          deployed.push({
+            platform: "codex",
+            workspacePath: join(home, ".codex"),
+            rulesFiles: ["AGENTS.md"],
+          });
+        }
+      } catch { /* 不存在 */ }
+
+      return { deployed };
+    }
+
+    const trimmed = workspacePath.trim();
+    if (!trimmed) {
+      return { deployed };
+    }
+
+    const root = resolve(trimmed);
+    try {
+      const st = await stat(root);
+      if (!st.isDirectory()) {
+        return { deployed };
+      }
+    } catch {
+      return { deployed };
+    }
+
+    const cursorFiles: string[] = [];
+    const cursorDir = join(root, ".cursor", "rules");
+    for (const name of ["super-ask.mdc"]) {
+      const p = join(cursorDir, name);
+      try {
+        const s = await stat(p);
+        if (s.isFile()) cursorFiles.push(name);
+      } catch {
+        /* 忽略 */
+      }
+    }
+    if (cursorFiles.length > 0) {
+      deployed.push({
+        platform: "cursor",
+        workspacePath: root,
+        rulesFiles: cursorFiles,
+      });
+    }
+
+    const vscodeFiles: string[] = [];
+    const copilotDir = join(root, ".copilot", "instructions");
+    const copilotFile = join(copilotDir, "super-ask.instructions.md");
+    try {
+      const st = await stat(copilotFile);
+      if (st.isFile()) vscodeFiles.push("super-ask.instructions.md");
+    } catch { /* 不存在 */ }
+    const githubDir = join(root, ".github");
+    const legacyInstructions = join(githubDir, "copilot-instructions.md");
+    try {
+      const content = await readFileContent(legacyInstructions);
+      if (content.includes("<!-- super-ask:begin -->")) {
+        vscodeFiles.push("copilot-instructions.md (legacy)");
+      }
+    } catch { /* 忽略 */ }
+    try {
+      const st = await stat(join(githubDir, "super-ask-copilot.md"));
+      if (st.isFile()) vscodeFiles.push("super-ask-copilot.md (legacy)");
+    } catch { /* 忽略 */ }
+    if (vscodeFiles.length > 0) {
+      deployed.push({
+        platform: "vscode",
+        workspacePath: copilotDir,
+        rulesFiles: vscodeFiles,
+      });
+    }
+
+    const codexAgentsMd = join(root, "AGENTS.md");
+    try {
+      const content = await readFileContent(codexAgentsMd);
+      if (content.includes(CODEX_MARKER_BEGIN)) {
+        deployed.push({
+          platform: "codex",
+          workspacePath: root,
+          rulesFiles: ["AGENTS.md"],
+        });
+      }
+    } catch { /* 不存在 */ }
+
+    return { deployed };
+  }
+
+  /** 一键部署：按 scope 选择工作区或用户全局，再按平台依次执行 */
+  async deploy(req: DeployRequest): Promise<DeployResponse> {
+    const steps: DeployStep[] = [];
+    const seen = new Set<DeployPlatform>();
+    const scope = req.scope ?? "workspace";
+
+    for (const p of req.platforms) {
+      if (seen.has(p)) continue;
+      seen.add(p);
+      if (scope === "user") {
+        if (p === "cursor") {
+          steps.push(...(await this.deployCursorUser()));
+        } else if (p === "vscode") {
+          steps.push(...(await this.deployVscodeUser()));
+        } else if (p === "codex") {
+          steps.push(...(await this.deployCodexUser()));
+        }
+      } else {
+        if (p === "cursor") {
+          steps.push(...(await this.deployCursor(req.workspacePath)));
+        } else if (p === "vscode") {
+          steps.push(...(await this.deployVscode(req.workspacePath)));
+        } else if (p === "codex") {
+          steps.push(...(await this.deployCodex(req.workspacePath)));
+        }
+      }
+    }
+
+    const success = !steps.some((s) => s.status === "failed");
+    return { success, steps };
+  }
+
+  /** 一键卸载：按 scope 与平台移除规则；可选清理全局配置 */
+  async undeploy(req: UndeployRequest): Promise<UndeployResponse> {
+    const steps: DeployStep[] = [];
+    const seen = new Set<DeployPlatform>();
+    const scope = req.scope ?? "workspace";
+
+    for (const p of req.platforms) {
+      if (seen.has(p)) continue;
+      seen.add(p);
+      if (scope === "user") {
+        if (p === "cursor") {
+          steps.push(...(await this.undeployCursorUser()));
+        } else if (p === "vscode") {
+          steps.push(...(await this.undeployVscodeUser()));
+        } else if (p === "codex") {
+          steps.push(...(await this.undeployCodexUser()));
+        }
+      } else {
+        if (p === "cursor") {
+          steps.push(...(await this.undeployCursor(req.workspacePath)));
+        } else if (p === "vscode") {
+          steps.push(...(await this.undeployVscode(req.workspacePath)));
+        } else if (p === "codex") {
+          steps.push(...(await this.undeployCodex(req.workspacePath)));
+        }
+      }
+    }
+
+    if (req.cleanConfig) {
+      steps.push(...(await this.cleanGlobalConfig()));
+    }
+
+    const success = !steps.some((s) => s.status === "failed");
+    return { success, steps };
+  }
+}
