@@ -45,11 +45,11 @@ test("SettingsPanel renders Chinese about page with bilingual product content an
 
   assert.match(html, />关于</);
   assert.match(html, /markdown-body/);
-  assert.match(html, /产品简介/);
+  assert.match(html, /概述/);
   assert.match(html, /多轮人机交互中间件/);
-  assert.match(html, /特色功能/);
+  assert.match(html, /为什么需要 Super Ask/);
+  assert.match(html, /核心特性/);
   assert.match(html, /阻塞式交互/);
-  assert.match(html, /高效消息管理/);
   assert.match(html, /联系方式/);
   assert.match(html, /mailto:support@aidb\.live/);
   assert.match(html, /https:\/\/github\.com\/bdliyq\/super-ask/);
@@ -62,11 +62,11 @@ test("SettingsPanel renders English about page when locale is en", () => {
 
   assert.match(html, />About</);
   assert.match(html, /markdown-body/);
-  assert.match(html, /Product Introduction/);
+  assert.match(html, /Overview/);
   assert.match(html, /human-in-the-loop middleware/);
-  assert.match(html, /Features/);
-  assert.match(html, /Blocking interaction/);
-  assert.match(html, /Efficient message handling/);
+  assert.match(html, /Why Super Ask/);
+  assert.match(html, /Key Features/);
+  assert.match(html, /Blocking Interaction/);
   assert.match(html, /Contact/);
   assert.match(html, /support@aidb\.live/);
   assert.match(html, /bdliyq\/super-ask/);

@@ -44,7 +44,7 @@ test("SettingsPanel restores the previously active tab from storage on refresh",
     );
 
     assert.match(html, /settings-panel__nav-item settings-panel__nav-item--active">About</);
-    assert.match(html, /Product Introduction/);
+    assert.match(html, /Overview/);
     assert.doesNotMatch(html, /Deploy Management<\/button><\/nav><div class="settings-panel__content"><div class="deploy-panel">/);
   } finally {
     globalThis.localStorage = originalLocalStorage;

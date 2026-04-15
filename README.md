@@ -82,7 +82,7 @@ Agent 在执行任务的过程中，可以随时调用 Super Ask 向用户汇报
 ### 安装与启动
 
 ```bash
-git clone https://github.com/user/super-ask.git
+git clone https://github.com/bdliyq/super-ask.git
 cd super-ask
 bash install.sh
 ```
@@ -346,7 +346,7 @@ During task execution, agents can call Super Ask at any point to report progress
 ### Install & Start
 
 ```bash
-git clone https://github.com/user/super-ask.git
+git clone https://github.com/bdliyq/super-ask.git
 cd super-ask
 bash install.sh
 ```
