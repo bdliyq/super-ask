@@ -275,18 +275,27 @@ export function ChatView({ session, onSendReply, queuedReplies = [], onRemoveQue
       <div className="chat-view__body">
         <div className="chat-view__main">
           <div ref={messagesRef} className="chat-view__messages" role="log" aria-live="polite" aria-relevant="additions">
-            {groupInteractions(session.history).map((g, i) => (
-              <div key={`${g.agent.timestamp}-${i}`} id={`interaction-${i}`} ref={(el) => { if (el) cardRefs.current.set(i, el); else cardRefs.current.delete(i); }}>
-                <InteractionCard
-                  index={i}
-                  agentEntry={g.agent}
-                  userEntry={g.user}
-                  onQuote={(ref) => setQuotedRefs((prev) => [...prev, ref])}
-                  isPinned={pinnedSet.has(i)}
-                  onTogglePin={handleTogglePin}
-                />
-              </div>
-            ))}
+            {groupInteractions(session.history).map((g, i, arr) => {
+              const isLastPair = i === arr.length - 1;
+              const acked = g.user
+                ? isLastPair
+                  ? session.requestStatus === "acked"
+                  : true
+                : false;
+              return (
+                <div key={`${g.agent.timestamp}-${i}`} id={`interaction-${i}`} ref={(el) => { if (el) cardRefs.current.set(i, el); else cardRefs.current.delete(i); }}>
+                  <InteractionCard
+                    index={i}
+                    agentEntry={g.agent}
+                    userEntry={g.user}
+                    onQuote={(ref) => setQuotedRefs((prev) => [...prev, ref])}
+                    isPinned={pinnedSet.has(i)}
+                    onTogglePin={handleTogglePin}
+                    isAcked={acked}
+                  />
+                </div>
+              );
+            })}
           </div>
           <ReplyBox
             hasPending={session.hasPending}

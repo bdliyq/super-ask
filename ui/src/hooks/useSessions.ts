@@ -12,7 +12,7 @@ function sessionsMapFromSync(list: SessionInfo[]): Map<string, SessionInfo> {
 /**
  * 根据 session_update 的 status 推导是否仍有待处理请求。
  */
-function pendingFromStatus(status: "pending" | "cancelled" | "replied"): boolean {
+function pendingFromStatus(status: "pending" | "cancelled" | "replied" | "acked"): boolean {
   return status === "pending";
 }
 

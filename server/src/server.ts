@@ -134,7 +134,7 @@ function isValidDeployRequest(body: unknown): body is DeployRequest {
   }
   if (!Array.isArray(b.platforms) || b.platforms.length === 0) return false;
   for (const p of b.platforms) {
-    if (p !== "cursor" && p !== "vscode" && p !== "codex") return false;
+    if (p !== "cursor" && p !== "vscode" && p !== "codex" && p !== "qwen") return false;
   }
   return true;
 }
@@ -151,7 +151,7 @@ function isValidUndeployRequest(body: unknown): body is UndeployRequest {
   }
   if (!Array.isArray(b.platforms)) return false;
   for (const p of b.platforms) {
-    if (p !== "cursor" && p !== "vscode" && p !== "codex") return false;
+    if (p !== "cursor" && p !== "vscode" && p !== "codex" && p !== "qwen") return false;
   }
   if (b.cleanConfig !== undefined && typeof b.cleanConfig !== "boolean") {
     return false;
@@ -201,6 +201,8 @@ async function sendStatic(
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     } else if (filePath.includes("/assets/")) {
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    } else if (filePath.endsWith(".png") || filePath.endsWith(".ico")) {
+      res.setHeader("Cache-Control", "public, max-age=86400");
     }
     createReadStream(filePath).pipe(res);
   } catch {
@@ -457,6 +459,30 @@ export function startSuperAsk(
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.end(JSON.stringify(result));
+      return;
+    }
+
+    // POST /api/ack — Agent 确认已收到回复
+    if (method === "POST" && pathname === "/api/ack") {
+      if (!requireAuth(req, res)) return;
+      let parsed: unknown;
+      try { parsed = await readJsonBody(req, 4096); } catch {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: "无效请求体" }));
+        return;
+      }
+      const b = parsed as Record<string, unknown>;
+      const sid = typeof b.chatSessionId === "string" ? b.chatSessionId : "";
+      if (!sid) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "缺少 chatSessionId" }));
+        return;
+      }
+      const ok = sessionManager.ackReply(sid);
+      res.statusCode = ok ? 200 : 404;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ success: ok }));
       return;
     }
 
@@ -788,6 +814,21 @@ export function startSuperAsk(
       const uploadFile = resolveUserUploadFile(pathname);
       if (uploadFile) {
         await sendStatic(res, uploadFile);
+        return;
+      }
+
+      if (pathname === "/favicon.ico") {
+        const pngPath = resolve(STATIC_ROOT, "favicon.png");
+        try {
+          await stat(pngPath);
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "image/png");
+          res.setHeader("Cache-Control", "public, max-age=86400");
+          createReadStream(pngPath).pipe(res);
+        } catch {
+          res.statusCode = 204;
+          res.end();
+        }
         return;
       }
 

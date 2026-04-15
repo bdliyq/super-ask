@@ -614,6 +614,24 @@ export class SessionManager {
   }
 
   /**
+   * Agent 确认已收到回复
+   */
+  ackReply(chatSessionId: string): boolean {
+    const session = this.sessions.get(chatSessionId);
+    if (!session) return false;
+    if (session.requestStatus !== "replied") return false;
+    session.requestStatus = "acked";
+    session.lastActiveAt = Date.now();
+    this.wsBroadcast({
+      type: "session_update",
+      chatSessionId,
+      status: "acked",
+    } satisfies WsSessionUpdate);
+    void this.persistSession(chatSessionId);
+    return true;
+  }
+
+  /**
    * Pin 一条消息（添加到 pinnedIndices）
    */
   pinMessage(chatSessionId: string, index: number): boolean {

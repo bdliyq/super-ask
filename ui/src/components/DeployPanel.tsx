@@ -7,7 +7,7 @@ import { useI18n } from "../i18n";
 type DeployStatusEntry = DeployStatusResponse["deployed"][number];
 
 /** 部署目标平台（与后端约定一致） */
-type DeployPlatform = "cursor" | "vscode" | "codex";
+type DeployPlatform = "cursor" | "vscode" | "codex" | "qwen";
 
 /** 单步执行状态 */
 interface DeployStep {
@@ -26,11 +26,17 @@ interface DeployResponse {
 /**
  * 根据选中的平台生成请求体中的 platforms 数组（二者都选即「全部」）
  */
-function platformsPayload(cursor: boolean, vscode: boolean, codex: boolean): DeployPlatform[] {
+function platformsPayload(
+  cursor: boolean,
+  vscode: boolean,
+  codex: boolean,
+  qwen: boolean,
+): DeployPlatform[] {
   const list: DeployPlatform[] = [];
   if (cursor) list.push("cursor");
   if (vscode) list.push("vscode");
   if (codex) list.push("codex");
+  if (qwen) list.push("qwen");
   return list;
 }
 
@@ -53,6 +59,7 @@ export function DeployPanel() {
   const [cursorChecked, setCursorChecked] = useState(true);
   const [vscodeChecked, setVscodeChecked] = useState(true);
   const [codexChecked, setCodexChecked] = useState(true);
+  const [qwenChecked, setQwenChecked] = useState(true);
   const [cleanConfig, setCleanConfig] = useState(false);
   const [steps, setSteps] = useState<DeployStep[]>([]);
   const [busy, setBusy] = useState(false);
@@ -61,8 +68,8 @@ export function DeployPanel() {
   const [deployStatus, setDeployStatus] = useState<DeployStatusEntry[]>([]);
 
   const platforms = useMemo(
-    () => platformsPayload(cursorChecked, vscodeChecked, codexChecked),
-    [cursorChecked, vscodeChecked, codexChecked],
+    () => platformsPayload(cursorChecked, vscodeChecked, codexChecked, qwenChecked),
+    [cursorChecked, vscodeChecked, codexChecked, qwenChecked],
   );
 
   /**
@@ -280,14 +287,30 @@ export function DeployPanel() {
             />
             <span>Codex</span>
           </label>
+          <label className="deploy-panel__check">
+            <input
+              type="checkbox"
+              checked={qwenChecked}
+              onChange={(e) => setQwenChecked(e.target.checked)}
+              disabled={busy}
+            />
+            <span>Qwen</span>
+          </label>
         </div>
 
         <div className="deploy-panel__status" aria-live="polite">
           <div className="deploy-panel__status-title">{t.currentStatus}</div>
-          {(["cursor", "vscode", "codex"] as const).map((pf) => {
+          {(["cursor", "vscode", "codex", "qwen"] as const).map((pf) => {
             const entry = deployStatus.find((d) => d.platform === pf);
             const deployed = Boolean(entry && entry.rulesFiles.length > 0);
-            const label = pf === "cursor" ? "Cursor" : pf === "vscode" ? "Copilot" : "Codex";
+            const label =
+              pf === "cursor"
+                ? "Cursor"
+                : pf === "vscode"
+                  ? "Copilot"
+                  : pf === "codex"
+                    ? "Codex"
+                    : "Qwen";
             const filesText = deployed && entry ? entry.rulesFiles.join(", ") : "";
             return (
               <div key={pf} className="deploy-panel__status-item">

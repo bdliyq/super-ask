@@ -50,6 +50,9 @@ function stripMdcFrontmatter(raw: string): string {
 
 const CODEX_MARKER_BEGIN = "<!-- SUPER-ASK-BEGIN -->";
 const CODEX_MARKER_END = "<!-- SUPER-ASK-END -->";
+const QWEN_CONTEXT_FILE_NAME = "super-ask-qwen.md";
+const QWEN_SETTINGS_DIR_NAME = ".qwen";
+const QWEN_SETTINGS_FILE_NAME = "settings.json";
 
 /**
  * 向 AGENTS.md 中注入 super-ask 规则（用标记注释包裹），已存在则替换
@@ -85,6 +88,109 @@ function removeCodexBlock(content: string): string {
   if (!before) return after.trim() + "\n";
   if (!after) return before.trim() + "\n";
   return before + "\n\n" + after.trim() + "\n";
+}
+
+function parseJsonObject(raw: string, label: string): Record<string, unknown> {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return {};
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error(`${label} 不是有效 JSON`);
+  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+    throw new Error(`${label} 必须是 JSON 对象`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function normalizeQwenContextFileNames(value: unknown): string[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  if (Array.isArray(value)) {
+    return Array.from(
+      new Set(
+        value
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim())
+          .filter(Boolean)
+      )
+    );
+  }
+  throw new Error("context.fileName 必须是字符串或字符串数组");
+}
+
+function encodeQwenContextFileNames(names: string[]): string | string[] | undefined {
+  if (names.length === 0) {
+    return undefined;
+  }
+  return names.length === 1 ? names[0] : names;
+}
+
+function mergeQwenSettingsContent(existingContent: string, contextFileName: string): string {
+  const settings = parseJsonObject(existingContent, "Qwen settings.json");
+  const contextValue = settings.context;
+  if (
+    contextValue !== undefined &&
+    (!contextValue || Array.isArray(contextValue) || typeof contextValue !== "object")
+  ) {
+    throw new Error("Qwen settings.json 中的 context 必须是对象");
+  }
+  const context = contextValue
+    ? { ...(contextValue as Record<string, unknown>) }
+    : {};
+  const existingNames = normalizeQwenContextFileNames(context.fileName);
+  const mergedNames = [contextFileName, ...existingNames.filter((name) => name !== contextFileName)];
+  context.fileName = encodeQwenContextFileNames(mergedNames);
+  settings.context = context;
+  return `${JSON.stringify(settings, null, 2)}\n`;
+}
+
+function stripQwenSettingsContent(existingContent: string, contextFileName: string): string | null {
+  const settings = parseJsonObject(existingContent, "Qwen settings.json");
+  const contextValue = settings.context;
+  if (
+    contextValue !== undefined &&
+    (!contextValue || Array.isArray(contextValue) || typeof contextValue !== "object")
+  ) {
+    throw new Error("Qwen settings.json 中的 context 必须是对象");
+  }
+  if (!contextValue) {
+    return Object.keys(settings).length === 0 ? null : `${JSON.stringify(settings, null, 2)}\n`;
+  }
+  const context = { ...(contextValue as Record<string, unknown>) };
+  const filteredNames = normalizeQwenContextFileNames(context.fileName)
+    .filter((name) => name !== contextFileName);
+  const encoded = encodeQwenContextFileNames(filteredNames);
+  if (encoded === undefined) {
+    delete context.fileName;
+  } else {
+    context.fileName = encoded;
+  }
+  if (Object.keys(context).length === 0) {
+    delete settings.context;
+  } else {
+    settings.context = context;
+  }
+  return Object.keys(settings).length === 0 ? null : `${JSON.stringify(settings, null, 2)}\n`;
+}
+
+function qwenSettingsIncludesContextFile(content: string, contextFileName: string): boolean {
+  const settings = parseJsonObject(content, "Qwen settings.json");
+  const contextValue = settings.context;
+  if (!contextValue || Array.isArray(contextValue) || typeof contextValue !== "object") {
+    return false;
+  }
+  return normalizeQwenContextFileNames((contextValue as Record<string, unknown>).fileName)
+    .includes(contextFileName);
 }
 
 /**
@@ -140,6 +246,58 @@ export class DeployManager {
   private async readRenderedRule(name: string): Promise<string> {
     const raw = await readFileContent(this.rulesPath(name));
     return this.renderRuleTemplate(raw);
+  }
+
+  private async writeQwenSettings(settingsPath: string): Promise<void> {
+    let existing = "";
+    try {
+      existing = await readFileContent(settingsPath);
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code !== "ENOENT") throw e;
+    }
+    await writeFileContent(
+      settingsPath,
+      mergeQwenSettingsContent(existing, QWEN_CONTEXT_FILE_NAME)
+    );
+  }
+
+  private async cleanupQwenSettings(settingsPath: string): Promise<void> {
+    let existing: string;
+    try {
+      existing = await readFileContent(settingsPath);
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") return;
+      throw e;
+    }
+    const next = stripQwenSettingsContent(existing, QWEN_CONTEXT_FILE_NAME);
+    if (next === null) {
+      await unlink(settingsPath);
+      return;
+    }
+    await writeFileContent(settingsPath, next);
+  }
+
+  private async verifyQwenSettings(settingsPath: string): Promise<void> {
+    const content = await readFileContent(settingsPath);
+    if (!qwenSettingsIncludesContextFile(content, QWEN_CONTEXT_FILE_NAME)) {
+      throw new Error("Qwen settings.json 未启用 super-ask-qwen.md");
+    }
+  }
+
+  private async verifyQwenSettingsRemoved(settingsPath: string): Promise<void> {
+    try {
+      const content = await readFileContent(settingsPath);
+      if (qwenSettingsIncludesContextFile(content, QWEN_CONTEXT_FILE_NAME)) {
+        throw new Error("Qwen settings.json 中仍引用 super-ask-qwen.md");
+      }
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") return;
+      if (e instanceof Error && e.message.includes("super-ask-qwen.md")) throw e;
+      throw e;
+    }
   }
 
   /**
@@ -362,6 +520,82 @@ export class DeployManager {
   }
 
   /**
+   * 部署到 Qwen（工作区级）：<project>/super-ask-qwen.md + .qwen/settings.json
+   */
+  async deployQwen(workspacePath: string): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const root = resolve(workspacePath);
+    const qwenDir = join(root, QWEN_SETTINGS_DIR_NAME);
+    const destFile = join(root, QWEN_CONTEXT_FILE_NAME);
+    const settingsPath = join(qwenDir, QWEN_SETTINGS_FILE_NAME);
+    const src = this.rulesPath("super-ask-qwen.md");
+
+    await this.runStep(steps, "check_workspace", "检查工作区路径是否存在", async () => {
+      const st = await stat(root);
+      if (!st.isDirectory()) {
+        throw new Error("路径存在但不是目录");
+      }
+    }, root);
+
+    await this.runStep(steps, "create_qwen_dir", "创建 .qwen 目录", async () => {
+      await mkdir(qwenDir, { recursive: true });
+    }, qwenDir);
+
+    await this.runStep(steps, "deploy_qwen_rules", "部署 super-ask-qwen.md", async () => {
+      const rendered = await this.readRenderedRule("super-ask-qwen.md");
+      await writeFileContent(destFile, ensureTrailingNewline(rendered.trimEnd()));
+    }, `${src} → ${destFile}`);
+
+    await this.runStep(steps, "update_qwen_settings", "更新 .qwen/settings.json", async () => {
+      await this.writeQwenSettings(settingsPath);
+    }, settingsPath);
+
+    await this.runStep(steps, "verify_qwen_rules", "验证 Qwen 规则文件已写入", async () => {
+      await stat(destFile);
+    }, destFile);
+
+    await this.runStep(steps, "verify_qwen_settings", "验证 Qwen settings 已启用规则文件", async () => {
+      await this.verifyQwenSettings(settingsPath);
+    }, settingsPath);
+
+    return steps;
+  }
+
+  /**
+   * 部署到 Qwen（用户级）：~/.qwen/super-ask-qwen.md + ~/.qwen/settings.json
+   */
+  async deployQwenUser(): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const qwenDir = join(homedir(), QWEN_SETTINGS_DIR_NAME);
+    const destFile = join(qwenDir, QWEN_CONTEXT_FILE_NAME);
+    const settingsPath = join(qwenDir, QWEN_SETTINGS_FILE_NAME);
+    const src = this.rulesPath("super-ask-qwen.md");
+
+    await this.runStep(steps, "create_qwen_dir_user", "创建用户级 ~/.qwen 目录", async () => {
+      await mkdir(qwenDir, { recursive: true });
+    }, qwenDir);
+
+    await this.runStep(steps, "deploy_qwen_rules_user", "部署用户级 super-ask-qwen.md", async () => {
+      const rendered = await this.readRenderedRule("super-ask-qwen.md");
+      await writeFileContent(destFile, ensureTrailingNewline(rendered.trimEnd()));
+    }, `${src} → ${destFile}`);
+
+    await this.runStep(steps, "update_qwen_settings_user", "更新用户级 ~/.qwen/settings.json", async () => {
+      await this.writeQwenSettings(settingsPath);
+    }, settingsPath);
+
+    await this.runStep(steps, "verify_qwen_rules_user", "验证用户级 Qwen 规则文件已写入", async () => {
+      await stat(destFile);
+    }, destFile);
+
+    await this.runStep(steps, "verify_qwen_settings_user", "验证用户级 Qwen settings 已启用规则文件", async () => {
+      await this.verifyQwenSettings(settingsPath);
+    }, settingsPath);
+
+    return steps;
+  }
+
+  /**
    * 从 Cursor 工作区移除 super-ask 规则文件
    */
   async undeployCursor(workspacePath: string): Promise<DeployStep[]> {
@@ -573,6 +807,86 @@ export class DeployManager {
   }
 
   /**
+   * 从 Qwen 工作区移除 super-ask-qwen.md 与 settings 引用
+   */
+  async undeployQwen(workspacePath: string): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const root = resolve(workspacePath);
+    const destFile = join(root, QWEN_CONTEXT_FILE_NAME);
+    const settingsPath = join(root, QWEN_SETTINGS_DIR_NAME, QWEN_SETTINGS_FILE_NAME);
+
+    await this.runStep(steps, "remove_qwen_rules", "删除 super-ask-qwen.md", async () => {
+      try {
+        await unlink(destFile);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") throw e;
+      }
+    }, destFile);
+
+    await this.runStep(steps, "cleanup_qwen_settings", "清理 .qwen/settings.json 中的 super-ask-qwen.md 引用", async () => {
+      await this.cleanupQwenSettings(settingsPath);
+    }, settingsPath);
+
+    await this.runStep(steps, "verify_qwen_rules_removed", "验证 Qwen 规则文件已删除", async () => {
+      try {
+        await stat(destFile);
+        throw new Error(`文件仍存在: ${destFile}`);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        throw e;
+      }
+    }, destFile);
+
+    await this.runStep(steps, "verify_qwen_settings_removed", "验证 Qwen settings 已移除规则引用", async () => {
+      await this.verifyQwenSettingsRemoved(settingsPath);
+    }, settingsPath);
+
+    return steps;
+  }
+
+  /**
+   * 从用户主目录 ~/.qwen/ 删除 super-ask-qwen.md 与 settings 引用
+   */
+  async undeployQwenUser(): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const qwenDir = join(homedir(), QWEN_SETTINGS_DIR_NAME);
+    const destFile = join(qwenDir, QWEN_CONTEXT_FILE_NAME);
+    const settingsPath = join(qwenDir, QWEN_SETTINGS_FILE_NAME);
+
+    await this.runStep(steps, "remove_qwen_rules_user", "删除用户级 super-ask-qwen.md", async () => {
+      try {
+        await unlink(destFile);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") throw e;
+      }
+    }, destFile);
+
+    await this.runStep(steps, "cleanup_qwen_settings_user", "清理用户级 ~/.qwen/settings.json 中的 super-ask-qwen.md 引用", async () => {
+      await this.cleanupQwenSettings(settingsPath);
+    }, settingsPath);
+
+    await this.runStep(steps, "verify_qwen_rules_user_removed", "验证用户级 Qwen 规则文件已删除", async () => {
+      try {
+        await stat(destFile);
+        throw new Error(`文件仍存在: ${destFile}`);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        throw e;
+      }
+    }, destFile);
+
+    await this.runStep(steps, "verify_qwen_settings_user_removed", "验证用户级 Qwen settings 已移除规则引用", async () => {
+      await this.verifyQwenSettingsRemoved(settingsPath);
+    }, settingsPath);
+
+    return steps;
+  }
+
+  /**
    * 清理 ~/.super-ask/ 下的会话、日志、配置与 PID（不停止当前 server 进程）
    */
   async cleanGlobalConfig(): Promise<DeployStep[]> {
@@ -625,7 +939,7 @@ export class DeployManager {
   }
 
   /**
-   * 探测指定范围下 Cursor / VSCode 是否已部署规则文件
+   * 探测指定范围下各平台是否已部署规则文件
    * @param workspacePath workspace 模式下为工作区根路径；user 模式下忽略
    * @param scope user 时检查 ~/.cursor/rules/ 与 ~/.github/copilot-instructions.md 中的 super-ask 区块；workspace 时检查给定路径
    */
@@ -693,6 +1007,23 @@ export class DeployManager {
           });
         }
       } catch { /* 不存在 */ }
+
+      const qwenDir = join(home, QWEN_SETTINGS_DIR_NAME);
+      const qwenFile = join(qwenDir, QWEN_CONTEXT_FILE_NAME);
+      const qwenSettings = join(qwenDir, QWEN_SETTINGS_FILE_NAME);
+      try {
+        const st = await stat(qwenFile);
+        if (st.isFile()) {
+          const settings = await readFileContent(qwenSettings);
+          if (qwenSettingsIncludesContextFile(settings, QWEN_CONTEXT_FILE_NAME)) {
+            deployed.push({
+              platform: "qwen",
+              workspacePath: qwenDir,
+              rulesFiles: [QWEN_CONTEXT_FILE_NAME, QWEN_SETTINGS_FILE_NAME],
+            });
+          }
+        }
+      } catch { /* 不存在或未启用 */ }
 
       return { deployed };
     }
@@ -770,6 +1101,22 @@ export class DeployManager {
       }
     } catch { /* 不存在 */ }
 
+    const qwenFile = join(root, QWEN_CONTEXT_FILE_NAME);
+    const qwenSettings = join(root, QWEN_SETTINGS_DIR_NAME, QWEN_SETTINGS_FILE_NAME);
+    try {
+      const st = await stat(qwenFile);
+      if (st.isFile()) {
+        const settings = await readFileContent(qwenSettings);
+        if (qwenSettingsIncludesContextFile(settings, QWEN_CONTEXT_FILE_NAME)) {
+          deployed.push({
+            platform: "qwen",
+            workspacePath: root,
+            rulesFiles: [QWEN_CONTEXT_FILE_NAME, `${QWEN_SETTINGS_DIR_NAME}/${QWEN_SETTINGS_FILE_NAME}`],
+          });
+        }
+      }
+    } catch { /* 不存在或未启用 */ }
+
     return { deployed };
   }
 
@@ -789,6 +1136,8 @@ export class DeployManager {
           steps.push(...(await this.deployVscodeUser()));
         } else if (p === "codex") {
           steps.push(...(await this.deployCodexUser()));
+        } else if (p === "qwen") {
+          steps.push(...(await this.deployQwenUser()));
         }
       } else {
         if (p === "cursor") {
@@ -797,6 +1146,8 @@ export class DeployManager {
           steps.push(...(await this.deployVscode(req.workspacePath)));
         } else if (p === "codex") {
           steps.push(...(await this.deployCodex(req.workspacePath)));
+        } else if (p === "qwen") {
+          steps.push(...(await this.deployQwen(req.workspacePath)));
         }
       }
     }
@@ -821,6 +1172,8 @@ export class DeployManager {
           steps.push(...(await this.undeployVscodeUser()));
         } else if (p === "codex") {
           steps.push(...(await this.undeployCodexUser()));
+        } else if (p === "qwen") {
+          steps.push(...(await this.undeployQwenUser()));
         }
       } else {
         if (p === "cursor") {
@@ -829,6 +1182,8 @@ export class DeployManager {
           steps.push(...(await this.undeployVscode(req.workspacePath)));
         } else if (p === "codex") {
           steps.push(...(await this.undeployCodex(req.workspacePath)));
+        } else if (p === "qwen") {
+          steps.push(...(await this.undeployQwen(req.workspacePath)));
         }
       }
     }

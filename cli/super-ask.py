@@ -153,6 +153,26 @@ def _poll_request(url: str, auth_token: str | None = None) -> tuple[int, str]:
     return 0, json.dumps(obj, ensure_ascii=False)
 
 
+def _send_ack(port: int, chat_session_id: str, auth_token: str | None = None) -> None:
+    """向 Server 发送确认回执（best-effort，失败不影响主流程）"""
+    url = f"http://{HOST}:{port}/api/ack"
+    data = json.dumps({"chatSessionId": chat_session_id}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            **({"Authorization": f"Bearer {auth_token}"} if auth_token else {}),
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            resp.read()
+    except Exception:
+        pass
+
+
 def _validate_blocking_response(raw_json: str) -> tuple[int, str]:
     """验证阻塞模式的响应包含 chatSessionId 和 feedback。"""
     try:
@@ -196,7 +216,7 @@ def main() -> int:
     parser.add_argument(
         "--source",
         default=None,
-        help="来源标识（cursor / vscode / codex 等）",
+        help="来源标识（cursor / vscode / codex / qwen 等）",
     )
     parser.add_argument(
         "--workspace-root",
@@ -260,6 +280,9 @@ def main() -> int:
             obj = json.loads(output)
             status = obj.get("status")
             if status == "replied":
+                cid = obj.get("chatSessionId")
+                if cid:
+                    _send_ack(args.port, cid, auth_token)
                 print(output)
                 return 0
             if status == "pending":
@@ -304,6 +327,13 @@ def main() -> int:
                 if vcode != 0:
                     print(vout, file=sys.stderr)
                     return 1
+                try:
+                    resp_obj = json.loads(output)
+                    cid = resp_obj.get("chatSessionId")
+                    if cid:
+                        _send_ack(args.port, cid, auth_token)
+                except Exception:
+                    pass
             print(output)
             return 0
         if code != 2 or attempt >= max_retries:

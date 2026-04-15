@@ -498,6 +498,19 @@ body {
   box-shadow: 0 0 0 1px #fff;
 }
 
+.session-tabs__source--qwen {
+  background: #ff6f00;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 0 0 1px #ff6f00;
+}
+
+.session-tabs__item--active .session-tabs__source--qwen {
+  background: #fff;
+  color: #ff6f00;
+  box-shadow: 0 0 0 1px #fff;
+}
+
 .session-tabs__source--other {
   background: var(--text-muted);
   color: #fff;
@@ -1056,6 +1069,19 @@ body {
   background: #fff;
   color: #b71c1c;
   font-weight: 700;
+}
+
+.entry-ack-badge {
+  display: inline-flex;
+  align-items: center;
+  color: #2e7d32;
+  margin-left: 2px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .entry-ack-badge {
+  color: #66bb6a;
 }
 
 .entry-header__quote-btn {

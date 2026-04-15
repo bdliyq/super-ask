@@ -20,6 +20,9 @@ export function getSourceBadgeProps(
   } else if (k === "codex") {
     mod = `${base}--codex`;
     label = "Codex";
+  } else if (k === "qwen") {
+    mod = `${base}--qwen`;
+    label = "Qwen";
   }
   return { className: `${base} ${mod}`, label };
 }

@@ -146,6 +146,8 @@ export interface Translations {
   removeTag: string;
   tooltipTags: string;
 
+  agentAcked: string;
+
   /** 部署请求过程中客户端展示的文案 */
   deployConnecting: string;
   deployParseFailed: string;
@@ -228,9 +230,9 @@ export const zh: Translations = {
   deployTitle: "部署管理",
   deployScope: "部署范围",
   scopeUser: "用户全局",
-  scopeUserDesc: "规则对当前用户所有项目生效，存放在用户目录下。",
+  scopeUserDesc: "规则对当前用户所有项目生效，存放在用户目录下的对应平台配置位置。",
   scopeWorkspace: "工作区",
-  scopeWorkspaceDesc: "规则仅对指定工作区生效，存放在工作区的 .cursor/rules/ 或 .copilot/instructions/ 下。",
+  scopeWorkspaceDesc: "规则仅对指定工作区生效，存放在工作区的对应平台规则/配置位置，例如 .cursor/rules/、.copilot/instructions/、AGENTS.md 或 .qwen/settings.json。",
   workspacePath: "工作区路径",
   platforms: "目标平台",
   deploy: "一键部署",
@@ -287,6 +289,8 @@ export const zh: Translations = {
   addTagPlaceholder: "输入标签名…",
   removeTag: "移除标签",
   tooltipTags: "标签",
+
+  agentAcked: "Agent 已收到",
 
   deployConnecting: "正在连接服务器并执行…",
   deployParseFailed: "解析响应失败",
@@ -368,9 +372,9 @@ export const en: Translations = {
   deployTitle: "Deploy Management",
   deployScope: "Scope",
   scopeUser: "User (global)",
-  scopeUserDesc: "Rules apply globally for the current user, stored in the home directory.",
+  scopeUserDesc: "Rules apply globally for the current user and are stored in each platform's home-level config location.",
   scopeWorkspace: "Workspace",
-  scopeWorkspaceDesc: "Rules apply only to the specified workspace, stored in .cursor/rules/ or .copilot/instructions/.",
+  scopeWorkspaceDesc: "Rules apply only to the specified workspace and are stored in each platform's workspace-level rule/config location, such as .cursor/rules/, .copilot/instructions/, AGENTS.md, or .qwen/settings.json.",
   workspacePath: "Workspace path",
   platforms: "Platforms",
   deploy: "Deploy",
@@ -427,6 +431,8 @@ export const en: Translations = {
   addTagPlaceholder: "Enter tag name…",
   removeTag: "Remove tag",
   tooltipTags: "Tags",
+
+  agentAcked: "Agent received",
 
   deployConnecting: "Connecting to server…",
   deployParseFailed: "Failed to parse response",

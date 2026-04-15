@@ -6,7 +6,7 @@ export interface AskRequest {
   question: string;
   chatSessionId?: string;
   options?: string[];
-  /** 来源标识：cursor / vscode / codex / 自定义 */
+  /** 来源标识：cursor / vscode / codex / qwen / 自定义 */
   source?: string;
   /** Agent 所在工作区根路径 */
   workspaceRoot?: string;
@@ -67,7 +67,7 @@ export interface WsNewRequest {
 export interface WsSessionUpdate {
   type: "session_update";
   chatSessionId: string;
-  status: "pending" | "cancelled" | "replied";
+  status: "pending" | "cancelled" | "replied" | "acked";
   /** 回复时附带用户的历史记录，供其他浏览器实时同步 */
   historyEntry?: HistoryEntry;
 }
@@ -122,7 +122,7 @@ export interface SessionInfo {
   /** Agent 所在工作区根路径 */
   workspaceRoot?: string;
   /** 当前 HTTP 长连接对应的请求状态（供 UI 展示） */
-  requestStatus?: "pending" | "replied" | "cancelled";
+  requestStatus?: "pending" | "replied" | "cancelled" | "acked";
   /** 用户 pin 的消息索引列表（history 中的 index） */
   pinnedIndices?: number[];
   /** 用户自定义标签 */
@@ -165,7 +165,7 @@ export interface PidFileContent {
 
 // === Deploy API ===
 
-export type DeployPlatform = "cursor" | "vscode" | "codex";
+export type DeployPlatform = "cursor" | "vscode" | "codex" | "qwen";
 
 /** 部署范围：用户全局或单个工作区 */
 export type DeployScope = "user" | "workspace";

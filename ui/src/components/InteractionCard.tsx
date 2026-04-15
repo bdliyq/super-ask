@@ -49,6 +49,7 @@ export interface InteractionCardProps {
   onQuote?: (ref: QuotedRef) => void;
   isPinned?: boolean;
   onTogglePin?: (index: number) => void;
+  isAcked?: boolean;
 }
 
 type EntryStatusKind = "pending" | "done" | "cancelled";
@@ -70,7 +71,7 @@ function QuoteButton({ onClick, title, variant }: { onClick: () => void; title: 
   );
 }
 
-export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinned, onTogglePin }: InteractionCardProps) {
+export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinned, onTogglePin, isAcked }: InteractionCardProps) {
   const { t } = useI18n();
   const statusKind = getEntryStatus(userEntry);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -101,7 +102,8 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
         : "entry-status-badge entry-status-badge--replied";
 
   const askedTime = formatDateTime(agentEntry.timestamp);
-  const middleSegment = userEntry ? `${t.replied} ${formatDateTime(userEntry.timestamp)}` : "—";
+  const repliedText = userEntry ? `${t.replied} ${formatDateTime(userEntry.timestamp)}` : "—";
+  const middleSegment = repliedText;
 
   const rootClass = [
     "history-entry",
@@ -130,6 +132,14 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
             #{index + 1} · {t.asked} {askedTime} → {middleSegment}
           </span>
           <span className={statusBadgeClass}>{statusLabel}</span>
+          {isAcked && statusKind === "done" && (
+            <span className="entry-ack-badge" title={t.agentAcked ?? "Agent 已收到"}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1.5 8.5l3 3 4.5-6" />
+                <path d="M6.5 8.5l3 3 4.5-6" />
+              </svg>
+            </span>
+          )}
           <span className="entry-header__spacer" />
           {onQuote && (
             <QuoteButton

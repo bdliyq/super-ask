@@ -16,7 +16,7 @@
 
 ## 概述
 
-Super Ask 是一个多轮人机交互中间件，适用于各种 AI 编程 Agent（Cursor、VS Code Copilot、Codex 等）。
+Super Ask 是一个多轮人机交互中间件，适用于各种 AI 编程 Agent（Cursor、VS Code Copilot、Codex、Qwen CLI 等）。
 
 Agent 在执行任务的过程中，可以随时调用 Super Ask 向用户汇报进展、提问、等待反馈，然后根据反馈继续工作——形成闭环。
 
@@ -26,7 +26,7 @@ Agent 在执行任务的过程中，可以随时调用 Super Ask 向用户汇报
 |---|---|
 | Agent 执行完才告知结果，方向跑偏难纠正 | Agent 可在任意节点暂停汇报，用户实时审阅 |
 | 多个 Agent 并行时无法统一管理 | Web UI 集中管理所有 Agent 的会话 |
-| 不同 IDE / Agent 工具碎片化 | 统一协议，一套规则适配 Cursor / Copilot / Codex |
+| 不同 IDE / Agent 工具碎片化 | 统一协议，一套规则适配 Cursor / Copilot / Codex / Qwen |
 
 ## 架构
 
@@ -61,7 +61,7 @@ Agent 在执行任务的过程中，可以随时调用 Super Ask 向用户汇报
 
 ## 核心特性
 
-- **多平台支持**：Cursor、VS Code Copilot、Codex，一键部署规则
+- **多平台支持**：Cursor、VS Code Copilot、Codex、Qwen CLI，一键部署规则
 - **Web UI 仪表盘**：集中查看和管理所有 Agent 会话，WebSocket 实时消息推送
 - **阻塞式交互**：Agent 调用后暂停等待，用户回复后自动继续
 - **消息队列**：用户可预先编写回复，Agent 下次提问时自动发送
@@ -117,6 +117,7 @@ bash install.sh
 | **Cursor** | `.cursor/rules/super-ask.mdc` | 工作区 / 用户全局 |
 | **VS Code Copilot** | `.copilot/instructions/super-ask.instructions.md` | 工作区 / 用户全局 |
 | **Codex** | `AGENTS.md`（注入标记块） | 工作区 / 用户全局 |
+| **Qwen CLI** | `super-ask-qwen.md` + `.qwen/settings.json` | 工作区 / 用户全局 |
 
 部署后，Agent 会在每次任务完成时自动调用 Super Ask 汇报并等待反馈。
 
@@ -212,7 +213,8 @@ super-ask/
 │   ├── super-ask.md         # 通用版
 │   ├── super-ask-cursor.mdc # Cursor 版
 │   ├── super-ask-copilot.md # Copilot 版
-│   └── super-ask-codex.md   # Codex 版
+│   ├── super-ask-codex.md   # Codex 版
+│   └── super-ask-qwen.md    # Qwen 版
 ├── vscode/                 # VS Code 扩展（可选）
 ├── scripts/                # launchd 安装 / 卸载、npm-link
 ├── install.sh              # 一键构建与启动脚本
@@ -274,7 +276,7 @@ super-ask/
 
 ## Overview
 
-Super Ask is a multi-round human-in-the-loop middleware for AI coding agents (Cursor, VS Code Copilot, Codex, etc.).
+Super Ask is a multi-round human-in-the-loop middleware for AI coding agents (Cursor, VS Code Copilot, Codex, Qwen CLI, etc.).
 
 During task execution, agents can call Super Ask at any point to report progress, ask questions, and wait for user feedback before continuing — forming a closed feedback loop.
 
@@ -284,7 +286,7 @@ During task execution, agents can call Super Ask at any point to report progress
 |---|---|
 | Agent runs to completion; hard to course-correct mid-task | Agent pauses at any checkpoint for real-time review |
 | No unified view when running multiple agents in parallel | Web UI provides a single dashboard for all agent sessions |
-| Fragmented tools across different IDEs and agents | One protocol, one set of rules for Cursor / Copilot / Codex |
+| Fragmented tools across different IDEs and agents | One protocol, one set of rules for Cursor / Copilot / Codex / Qwen |
 
 ## Architecture
 
@@ -320,7 +322,7 @@ During task execution, agents can call Super Ask at any point to report progress
 
 ## Key Features
 
-- **Multi-platform**: Cursor, VS Code Copilot, Codex — one-click rule deployment
+- **Multi-platform**: Cursor, VS Code Copilot, Codex, Qwen CLI — one-click rule deployment
 - **Web UI Dashboard**: Centralized view for all agent sessions with real-time WebSocket updates
 - **Blocking Interaction**: Agent blocks until the user replies, then continues automatically
 - **Reply Queue**: Pre-compose replies that auto-send when the agent asks next
@@ -376,6 +378,7 @@ Open Web UI → Settings → Deploy panel, select platforms and scope for one-cl
 | **Cursor** | `.cursor/rules/super-ask.mdc` | Workspace / User-global |
 | **VS Code Copilot** | `.copilot/instructions/super-ask.instructions.md` | Workspace / User-global |
 | **Codex** | `AGENTS.md` (injected marked block) | Workspace / User-global |
+| **Qwen CLI** | `super-ask-qwen.md` + `.qwen/settings.json` | Workspace / User-global |
 
 After deployment, agents automatically call Super Ask CLI to report and wait for feedback at each task checkpoint.
 
@@ -471,7 +474,8 @@ super-ask/
 │   ├── super-ask.md         # Generic
 │   ├── super-ask-cursor.mdc # Cursor
 │   ├── super-ask-copilot.md # Copilot
-│   └── super-ask-codex.md   # Codex
+│   ├── super-ask-codex.md   # Codex
+│   └── super-ask-qwen.md    # Qwen
 ├── vscode/                 # VS Code extension (optional)
 ├── scripts/                # launchd install/uninstall, npm-link
 ├── install.sh              # One-shot build & start script
