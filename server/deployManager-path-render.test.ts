@@ -20,6 +20,8 @@ async function makeProjectRoot() {
   await writeFile(join(root, "rules", "super-ask-cursor.mdc"), TEMPLATE, "utf-8");
   await writeFile(join(root, "rules", "super-ask-copilot.md"), TEMPLATE, "utf-8");
   await writeFile(join(root, "rules", "super-ask-codex.md"), TEMPLATE, "utf-8");
+  await writeFile(join(root, "rules", "super-ask-opencode.md"), TEMPLATE, "utf-8");
+  await writeFile(join(root, "rules", "super-ask-opencode-tool.ts"), TEMPLATE, "utf-8");
   await writeFile(join(root, "rules", "super-ask-qwen.md"), TEMPLATE, "utf-8");
   return root;
 }
@@ -96,6 +98,74 @@ test("deployCodex injects rendered path placeholders into AGENTS", async () => {
   }
 });
 
+test("deployOpenCode writes rendered AGENTS block and tool file, and undeploy removes both", async () => {
+  const projectRoot = await makeProjectRoot();
+  const workspace = await makeWorkspace();
+
+  try {
+    await writeFile(join(workspace, "AGENTS.md"), "# Existing\n", "utf-8");
+
+    const manager = new DeployManager(projectRoot);
+    await manager.deployOpencode(workspace);
+
+    const renderedAgents = await readFile(join(workspace, "AGENTS.md"), "utf-8");
+    const renderedTool = await readFile(
+      join(workspace, ".opencode", "tools", "super-ask.ts"),
+      "utf-8",
+    );
+
+    assert.match(renderedAgents, /<!-- SUPER-ASK-OPENCODE-BEGIN -->/);
+    assert.match(
+      renderedAgents,
+      new RegExp(expectedRendered(projectRoot).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+    assert.equal(renderedTool.trim(), expectedRendered(projectRoot));
+
+    const status = await manager.checkStatus(workspace, "workspace");
+    assert.deepEqual(status.deployed, [
+      {
+        platform: "opencode",
+        workspacePath: workspace,
+        rulesFiles: ["AGENTS.md", ".opencode/tools/super-ask.ts"],
+      },
+    ]);
+
+    await manager.undeployOpencode(workspace);
+
+    const cleanedAgents = await readFile(join(workspace, "AGENTS.md"), "utf-8");
+    assert.doesNotMatch(cleanedAgents, /<!-- SUPER-ASK-OPENCODE-BEGIN -->/);
+    await assert.rejects(
+      readFile(join(workspace, ".opencode", "tools", "super-ask.ts"), "utf-8"),
+      { code: "ENOENT" },
+    );
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("deploy inserts a divider step between platform groups", async () => {
+  const projectRoot = await makeProjectRoot();
+  const workspace = await makeWorkspace();
+
+  try {
+    const manager = new DeployManager(projectRoot);
+    const result = await manager.deploy({
+      platforms: ["cursor", "vscode"],
+      workspacePath: workspace,
+      scope: "workspace",
+    });
+
+    const dividerIndex = result.steps.findIndex((step) => step.id === "group:deploy:vscode");
+    assert.notEqual(dividerIndex, -1);
+    assert.equal(result.steps[dividerIndex]?.name, "Copilot");
+    assert.equal(result.steps[dividerIndex]?.status, "success");
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("deployVscode renders production template without placeholder leaks", async () => {
   const workspace = await makeWorkspace();
 
@@ -128,8 +198,34 @@ test("deployCodex injects production template without placeholder leaks", async 
     const rendered = await readFile(join(workspace, "AGENTS.md"), "utf-8");
 
     assert.doesNotMatch(rendered, /\{\{SUPER_ASK_/);
-    assert.match(rendered, /--no-wait/);
-    assert.match(rendered, /--poll/);
+    assert.match(rendered, /block_until_ms:? 86400000/);
+    assert.doesNotMatch(rendered, /--no-wait/);
+    assert.doesNotMatch(rendered, /--poll/);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("deployOpenCode renders production template without placeholder leaks", async () => {
+  const workspace = await makeWorkspace();
+
+  try {
+    await writeFile(join(workspace, "AGENTS.md"), "# Existing\n", "utf-8");
+
+    const manager = new DeployManager(REAL_PROJECT_ROOT);
+    await manager.deployOpencode(workspace);
+
+    const renderedAgents = await readFile(join(workspace, "AGENTS.md"), "utf-8");
+    const renderedTool = await readFile(
+      join(workspace, ".opencode", "tools", "super-ask.ts"),
+      "utf-8",
+    );
+
+    assert.doesNotMatch(renderedAgents, /\{\{SUPER_ASK_/);
+    assert.doesNotMatch(renderedTool, /\{\{SUPER_ASK_/);
+    assert.match(renderedAgents, /chatSessionId/);
+    assert.match(renderedTool, /source:\s*"opencode"/);
+    assert.match(renderedTool, /\/super-ask/);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
@@ -292,6 +388,58 @@ test("deployQwenUser writes to ~/.qwen and undeployQwenUser restores prior setti
       await readFile(join(fakeHome, ".qwen", "settings.json"), "utf-8"),
     ) as { context?: { fileName?: string | string[] } };
     assert.deepEqual(settings.context?.fileName, "QWEN.md");
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(projectRoot, { recursive: true, force: true });
+    await rm(fakeHome, { recursive: true, force: true });
+  }
+});
+
+test("deployOpenCodeUser writes to ~/.config/opencode and undeployOpenCodeUser removes tool while restoring AGENTS", async () => {
+  const projectRoot = await makeProjectRoot();
+  const fakeHome = await mkdtemp(join(tmpdir(), "super-ask-opencode-home-"));
+  const originalHome = process.env.HOME;
+
+  try {
+    process.env.HOME = fakeHome;
+    await mkdir(join(fakeHome, ".config", "opencode"), { recursive: true });
+    await writeFile(join(fakeHome, ".config", "opencode", "AGENTS.md"), "# Existing\n", "utf-8");
+
+    const manager = new DeployManager(projectRoot);
+    await manager.deployOpencodeUser();
+
+    const renderedAgents = await readFile(
+      join(fakeHome, ".config", "opencode", "AGENTS.md"),
+      "utf-8",
+    );
+    const renderedTool = await readFile(
+      join(fakeHome, ".config", "opencode", "tools", "super-ask.ts"),
+      "utf-8",
+    );
+
+    assert.match(renderedAgents, /<!-- SUPER-ASK-OPENCODE-BEGIN -->/);
+    assert.equal(renderedTool.trim(), expectedRendered(projectRoot));
+
+    const status = await manager.checkStatus("", "user");
+    assert.deepEqual(status.deployed, [
+      {
+        platform: "opencode",
+        workspacePath: join(fakeHome, ".config", "opencode"),
+        rulesFiles: ["AGENTS.md", "tools/super-ask.ts"],
+      },
+    ]);
+
+    await manager.undeployOpencodeUser();
+
+    const cleanedAgents = await readFile(
+      join(fakeHome, ".config", "opencode", "AGENTS.md"),
+      "utf-8",
+    );
+    assert.doesNotMatch(cleanedAgents, /<!-- SUPER-ASK-OPENCODE-BEGIN -->/);
+    await assert.rejects(
+      readFile(join(fakeHome, ".config", "opencode", "tools", "super-ask.ts"), "utf-8"),
+      { code: "ENOENT" },
+    );
   } finally {
     process.env.HOME = originalHome;
     await rm(projectRoot, { recursive: true, force: true });

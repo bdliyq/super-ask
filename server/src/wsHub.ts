@@ -6,6 +6,7 @@ import type {
   WsServerMessage,
   WsClientMessage,
   WsReply,
+  WsReplyResult,
   WsDeleteSession,
 } from "../../shared/types";
 import type { SessionManager } from "./sessionManager";
@@ -120,12 +121,21 @@ export class WsHub {
         attachments = reply.attachments as FileAttachment[];
       }
 
-      this.sessionManager.handleReply(
+      const accepted = this.sessionManager.handleReply(
         reply.chatSessionId,
         reply.feedback,
         attachments,
         typeof reply.displayFeedback === "string" ? reply.displayFeedback : undefined
       );
+      this.send(ws, {
+        type: "reply_result",
+        chatSessionId: reply.chatSessionId,
+        ...(typeof reply.clientRequestId === "string"
+          ? { clientRequestId: reply.clientRequestId }
+          : {}),
+        accepted,
+        ...(!accepted ? { code: "not_pending" as const } : {}),
+      } satisfies WsReplyResult);
       return;
     }
 

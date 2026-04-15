@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import type { FileAttachment, SessionInfo, WsServerMessage } from "@shared/types";
+import type { SessionInfo, WsServerMessage } from "@shared/types";
 
 function sessionsMapFromSync(list: SessionInfo[]): Map<string, SessionInfo> {
   const m = new Map<string, SessionInfo>();
@@ -180,37 +180,6 @@ export function useSessions() {
     setActiveSessionId(id);
   }, [setActiveSessionId]);
 
-  /**
-   * 用户通过 WebSocket 发送回复后，乐观追加一条 user 历史记录并清除 pending（服务端 session_update 可再次校正）。
-   */
-  const appendUserReply = useCallback(
-    (chatSessionId: string, feedback: string, attachments?: FileAttachment[]) => {
-      const ts = Date.now();
-      setSessions((prev) => {
-        const next = new Map(prev);
-        const existing = next.get(chatSessionId);
-        if (!existing) return prev;
-        next.set(chatSessionId, {
-          ...existing,
-          history: [
-            ...existing.history,
-            {
-              role: "user" as const,
-              feedback,
-              timestamp: ts,
-              ...(attachments && attachments.length > 0 ? { attachments } : {}),
-            },
-          ],
-          hasPending: false,
-          requestStatus: "replied",
-          lastActiveAt: ts,
-        });
-        return next;
-      });
-    },
-    []
-  );
-
   const sortedSessions = useMemo(() => {
     return [...sessions.values()].sort((a, b) => b.lastActiveAt - a.lastActiveAt);
   }, [sessions]);
@@ -241,7 +210,6 @@ export function useSessions() {
     activeSession,
     setActiveSession,
     handleServerMessage,
-    appendUserReply,
     activeCount,
     pendingCount,
   };

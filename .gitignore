@@ -4,6 +4,7 @@ dist/
 .DS_Store
 .cursor/
 __pycache__/
+.worktrees/
 
 # Runtime
 server/super-ask.log

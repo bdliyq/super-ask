@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "re
 import type { FileAttachment, HistoryEntry, SessionInfo } from "@shared/types";
 import { withAuthHeaders } from "../auth";
 import { useI18n } from "../i18n";
+import { CopyButton } from "./CopyButton";
 import { InteractionCard, type QuotedRef } from "./InteractionCard";
 import { ReplyBox } from "./ReplyBox";
 import { RequestStatusBadge, SourceBadge } from "./SessionMetaBadges";
@@ -14,7 +15,7 @@ interface ChatViewProps {
     chatSessionId: string,
     feedback: string,
     attachments?: FileAttachment[]
-  ) => void;
+  ) => Promise<void>;
   queuedReplies?: QueuedReply[];
   onRemoveQueuedReply?: (index: number) => void;
 }
@@ -35,25 +36,6 @@ function groupInteractions(history: HistoryEntry[]) {
     }
   }
   return groups;
-}
-
-function CopyBtn({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [text]);
-  return (
-    <button type="button" className="chat-view__copy-btn" onClick={handleCopy} title="Copy">
-      {copied ? (
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-      ) : (
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="5" y="1" width="9" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/><path d="M3 5v8.5a1.5 1.5 0 001.5 1.5H11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
-      )}
-    </button>
-  );
 }
 
 export function ChatView({ session, onSendReply, queuedReplies = [], onRemoveQueuedReply }: ChatViewProps) {
@@ -235,7 +217,7 @@ export function ChatView({ session, onSendReply, queuedReplies = [], onRemoveQue
               title={t.addTag}
               onClick={() => setShowTagInput(true)}
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
+              <span className="chat-view__tag-add-glyph" aria-hidden="true">#</span>
             </button>
           )}
           {session.workspaceRoot ? (
@@ -244,7 +226,7 @@ export function ChatView({ session, onSendReply, queuedReplies = [], onRemoveQue
                 <path d="M1.5 2A1.5 1.5 0 0 1 3 .5h4.586a1.5 1.5 0 0 1 1.06.44l1.415 1.414A1.5 1.5 0 0 1 10.5 3.414V4H13A1.5 1.5 0 0 1 14.5 5.5v8A1.5 1.5 0 0 1 13 15H3A1.5 1.5 0 0 1 1.5 13.5V2Z" stroke="currentColor" strokeWidth="1.2" />
               </svg>
               {session.workspaceRoot}
-              <CopyBtn text={session.workspaceRoot} />
+              <CopyButton text={session.workspaceRoot} />
             </span>
           ) : null}
           <span className="chat-view__banner-id">
@@ -252,7 +234,7 @@ export function ChatView({ session, onSendReply, queuedReplies = [], onRemoveQue
               <path d="M2 4.5A2.5 2.5 0 0 1 4.5 2h7A2.5 2.5 0 0 1 14 4.5v3a2.5 2.5 0 0 1-2.5 2.5H9l-3 3v-3H4.5A2.5 2.5 0 0 1 2 7.5v-3Z" stroke="currentColor" strokeWidth="1.2" />
             </svg>
             {session.chatSessionId}
-            <CopyBtn text={session.chatSessionId} />
+            <CopyButton text={session.chatSessionId} />
           </span>
         </div>
         <div className="chat-view__banner-right">
@@ -306,7 +288,7 @@ export function ChatView({ session, onSendReply, queuedReplies = [], onRemoveQue
             quotedRefs={quotedRefs}
             onRemoveQuotedRef={(idx) => setQuotedRefs((prev) => prev.filter((_, i) => i !== idx))}
             onClearQuotedRefs={() => setQuotedRefs([])}
-            onSend={(feedback, attachments) =>
+            onSend={async (feedback, attachments) =>
               onSendReply(session.chatSessionId, feedback, attachments)
             }
           />

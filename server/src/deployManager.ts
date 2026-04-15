@@ -50,24 +50,42 @@ function stripMdcFrontmatter(raw: string): string {
 
 const CODEX_MARKER_BEGIN = "<!-- SUPER-ASK-BEGIN -->";
 const CODEX_MARKER_END = "<!-- SUPER-ASK-END -->";
+const OPENCODE_MARKER_BEGIN = "<!-- SUPER-ASK-OPENCODE-BEGIN -->";
+const OPENCODE_MARKER_END = "<!-- SUPER-ASK-OPENCODE-END -->";
 const QWEN_CONTEXT_FILE_NAME = "super-ask-qwen.md";
 const QWEN_SETTINGS_DIR_NAME = ".qwen";
 const QWEN_SETTINGS_FILE_NAME = "settings.json";
+const OPENCODE_DIR_NAME = ".opencode";
+const OPENCODE_TOOLS_DIR_NAME = "tools";
+const OPENCODE_TOOL_FILE_NAME = "super-ask.ts";
+
+function deployPlatformLabel(platform: DeployPlatform): string {
+  if (platform === "cursor") return "Cursor";
+  if (platform === "vscode") return "Copilot";
+  if (platform === "codex") return "Codex";
+  if (platform === "opencode") return "OpenCode";
+  return "Qwen";
+}
 
 /**
  * 向 AGENTS.md 中注入 super-ask 规则（用标记注释包裹），已存在则替换
  */
-function injectCodexBlock(existingContent: string, rulesContent: string): string {
-  const block = `${CODEX_MARKER_BEGIN}\n${rulesContent.trim()}\n${CODEX_MARKER_END}`;
-  const beginIdx = existingContent.indexOf(CODEX_MARKER_BEGIN);
-  const endIdx = existingContent.indexOf(CODEX_MARKER_END);
+function injectMarkedBlock(
+  existingContent: string,
+  rulesContent: string,
+  markerBegin: string,
+  markerEnd: string
+): string {
+  const block = `${markerBegin}\n${rulesContent.trim()}\n${markerEnd}`;
+  const beginIdx = existingContent.indexOf(markerBegin);
+  const endIdx = existingContent.indexOf(markerEnd);
   if (beginIdx !== -1 && endIdx !== -1 && endIdx > beginIdx) {
     return (
       existingContent.slice(0, beginIdx).trimEnd() +
       "\n\n" +
       block +
       "\n" +
-      existingContent.slice(endIdx + CODEX_MARKER_END.length).trimStart()
+      existingContent.slice(endIdx + markerEnd.length).trimStart()
     ).trim() + "\n";
   }
   const trimmed = existingContent.trim();
@@ -75,19 +93,35 @@ function injectCodexBlock(existingContent: string, rulesContent: string): string
   return trimmed + "\n\n" + block + "\n";
 }
 
+function injectCodexBlock(existingContent: string, rulesContent: string): string {
+  return injectMarkedBlock(existingContent, rulesContent, CODEX_MARKER_BEGIN, CODEX_MARKER_END);
+}
+
+function injectOpencodeBlock(existingContent: string, rulesContent: string): string {
+  return injectMarkedBlock(existingContent, rulesContent, OPENCODE_MARKER_BEGIN, OPENCODE_MARKER_END);
+}
+
 /**
  * 从 AGENTS.md 中移除 super-ask 标记注释块
  */
-function removeCodexBlock(content: string): string {
-  const beginIdx = content.indexOf(CODEX_MARKER_BEGIN);
-  const endIdx = content.indexOf(CODEX_MARKER_END);
+function removeMarkedBlock(content: string, markerBegin: string, markerEnd: string): string {
+  const beginIdx = content.indexOf(markerBegin);
+  const endIdx = content.indexOf(markerEnd);
   if (beginIdx === -1 || endIdx === -1 || endIdx <= beginIdx) return content;
   const before = content.slice(0, beginIdx).trimEnd();
-  const after = content.slice(endIdx + CODEX_MARKER_END.length).trimStart();
+  const after = content.slice(endIdx + markerEnd.length).trimStart();
   if (!before && !after) return "";
   if (!before) return after.trim() + "\n";
   if (!after) return before.trim() + "\n";
   return before + "\n\n" + after.trim() + "\n";
+}
+
+function removeCodexBlock(content: string): string {
+  return removeMarkedBlock(content, CODEX_MARKER_BEGIN, CODEX_MARKER_END);
+}
+
+function removeOpencodeBlock(content: string): string {
+  return removeMarkedBlock(content, OPENCODE_MARKER_BEGIN, OPENCODE_MARKER_END);
 }
 
 function parseJsonObject(raw: string, label: string): Record<string, unknown> {
@@ -520,6 +554,112 @@ export class DeployManager {
   }
 
   /**
+   * OpenCode 用户级（全局）部署：~/.config/opencode/AGENTS.md + tools/super-ask.ts
+   */
+  async deployOpencodeUser(): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const opencodeDir = join(homedir(), ".config", "opencode");
+    const toolsDir = join(opencodeDir, OPENCODE_TOOLS_DIR_NAME);
+    const agentsMd = join(opencodeDir, "AGENTS.md");
+    const toolFile = join(toolsDir, OPENCODE_TOOL_FILE_NAME);
+    const srcRules = this.rulesPath("super-ask-opencode.md");
+    const srcTool = this.rulesPath("super-ask-opencode-tool.ts");
+
+    await this.runStep(steps, "create_opencode_dir_user", "创建用户级 ~/.config/opencode 目录", async () => {
+      await mkdir(opencodeDir, { recursive: true });
+    }, opencodeDir);
+
+    await this.runStep(steps, "create_opencode_tools_user", "创建用户级 OpenCode tools 目录", async () => {
+      await mkdir(toolsDir, { recursive: true });
+    }, toolsDir);
+
+    await this.runStep(steps, "inject_opencode_rules_user", "注入 super-ask 规则到 OpenCode AGENTS.md", async () => {
+      const rulesContent = await this.readRenderedRule("super-ask-opencode.md");
+      let existing = "";
+      try {
+        existing = await readFileContent(agentsMd);
+      } catch { /* 文件不存在 */ }
+      const updated = injectOpencodeBlock(existing, rulesContent);
+      await writeFileContent(agentsMd, updated);
+    }, `${srcRules} → ${agentsMd}`);
+
+    await this.runStep(steps, "deploy_opencode_tool_user", "部署用户级 OpenCode super-ask 工具", async () => {
+      const toolContent = await this.readRenderedRule("super-ask-opencode-tool.ts");
+      await writeFileContent(toolFile, ensureTrailingNewline(toolContent.trimEnd()));
+    }, `${srcTool} → ${toolFile}`);
+
+    await this.runStep(steps, "verify_opencode_user", "验证用户级 OpenCode 规则与工具已写入", async () => {
+      const content = await readFileContent(agentsMd);
+      if (!content.includes(OPENCODE_MARKER_BEGIN)) {
+        throw new Error("AGENTS.md 中未找到 super-ask 标记");
+      }
+      const st = await stat(toolFile);
+      if (!st.isFile()) {
+        throw new Error("super-ask.ts 未写入");
+      }
+    }, `${agentsMd}\n${toolFile}`);
+
+    return steps;
+  }
+
+  /**
+   * OpenCode 项目级部署：<project>/AGENTS.md + .opencode/tools/super-ask.ts
+   */
+  async deployOpencode(workspacePath: string): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const root = resolve(workspacePath);
+    const opencodeDir = join(root, OPENCODE_DIR_NAME);
+    const toolsDir = join(opencodeDir, OPENCODE_TOOLS_DIR_NAME);
+    const agentsMd = join(root, "AGENTS.md");
+    const toolFile = join(toolsDir, OPENCODE_TOOL_FILE_NAME);
+    const srcRules = this.rulesPath("super-ask-opencode.md");
+    const srcTool = this.rulesPath("super-ask-opencode-tool.ts");
+
+    await this.runStep(steps, "check_workspace", "检查工作区路径是否存在", async () => {
+      const st = await stat(root);
+      if (!st.isDirectory()) {
+        throw new Error("路径存在但不是目录");
+      }
+    }, root);
+
+    await this.runStep(steps, "create_opencode_dir", "创建 .opencode 目录", async () => {
+      await mkdir(opencodeDir, { recursive: true });
+    }, opencodeDir);
+
+    await this.runStep(steps, "create_opencode_tools", "创建 .opencode/tools 目录", async () => {
+      await mkdir(toolsDir, { recursive: true });
+    }, toolsDir);
+
+    await this.runStep(steps, "inject_opencode_rules", "注入 super-ask 规则到 OpenCode AGENTS.md", async () => {
+      const rulesContent = await this.readRenderedRule("super-ask-opencode.md");
+      let existing = "";
+      try {
+        existing = await readFileContent(agentsMd);
+      } catch { /* 文件不存在 */ }
+      const updated = injectOpencodeBlock(existing, rulesContent);
+      await writeFileContent(agentsMd, updated);
+    }, `${srcRules} → ${agentsMd}`);
+
+    await this.runStep(steps, "deploy_opencode_tool", "部署 OpenCode super-ask 工具", async () => {
+      const toolContent = await this.readRenderedRule("super-ask-opencode-tool.ts");
+      await writeFileContent(toolFile, ensureTrailingNewline(toolContent.trimEnd()));
+    }, `${srcTool} → ${toolFile}`);
+
+    await this.runStep(steps, "verify_opencode", "验证 OpenCode 规则与工具已写入", async () => {
+      const content = await readFileContent(agentsMd);
+      if (!content.includes(OPENCODE_MARKER_BEGIN)) {
+        throw new Error("AGENTS.md 中未找到 super-ask 标记");
+      }
+      const st = await stat(toolFile);
+      if (!st.isFile()) {
+        throw new Error("super-ask.ts 未写入");
+      }
+    }, `${agentsMd}\n${toolFile}`);
+
+    return steps;
+  }
+
+  /**
    * 部署到 Qwen（工作区级）：<project>/super-ask-qwen.md + .qwen/settings.json
    */
   async deployQwen(workspacePath: string): Promise<DeployStep[]> {
@@ -807,6 +947,134 @@ export class DeployManager {
   }
 
   /**
+   * OpenCode 用户级卸载：移除 ~/.config/opencode/AGENTS.md 中的 super-ask 标记块与 tools/super-ask.ts
+   */
+  async undeployOpencodeUser(): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const opencodeDir = join(homedir(), ".config", "opencode");
+    const agentsMd = join(opencodeDir, "AGENTS.md");
+    const toolFile = join(opencodeDir, OPENCODE_TOOLS_DIR_NAME, OPENCODE_TOOL_FILE_NAME);
+
+    await this.runStep(steps, "remove_opencode_block_user", "从 OpenCode AGENTS.md 移除 super-ask 标记块", async () => {
+      let content: string;
+      try {
+        content = await readFileContent(agentsMd);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        throw e;
+      }
+      if (!content.includes(OPENCODE_MARKER_BEGIN)) return;
+      const updated = removeOpencodeBlock(content);
+      if (!updated.trim()) {
+        await writeFileContent(agentsMd, "");
+      } else {
+        await writeFileContent(agentsMd, updated);
+      }
+    }, agentsMd);
+
+    await this.runStep(steps, "remove_opencode_tool_user", "删除用户级 OpenCode super-ask 工具", async () => {
+      try {
+        await unlink(toolFile);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") throw e;
+      }
+    }, toolFile);
+
+    await this.runStep(steps, "verify_opencode_user_undeploy", "验证用户级 OpenCode 规则与工具已移除", async () => {
+      try {
+        const content = await readFileContent(agentsMd);
+        if (content.includes(OPENCODE_MARKER_BEGIN)) {
+          throw new Error("AGENTS.md 中仍包含 super-ask 标记");
+        }
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") {
+          if (e instanceof Error && e.message.includes("super-ask 标记")) throw e;
+          throw e;
+        }
+      }
+      try {
+        await stat(toolFile);
+        throw new Error(`文件仍存在: ${toolFile}`);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        if (e instanceof Error && e.message.startsWith("文件仍存在")) throw e;
+        throw e;
+      }
+    }, `${agentsMd}\n${toolFile}`);
+
+    return steps;
+  }
+
+  /**
+   * OpenCode 项目级卸载：移除 <project>/AGENTS.md 中的 super-ask 标记块与 .opencode/tools/super-ask.ts
+   */
+  async undeployOpencode(workspacePath: string): Promise<DeployStep[]> {
+    const steps: DeployStep[] = [];
+    const root = resolve(workspacePath);
+    const agentsMd = join(root, "AGENTS.md");
+    const toolFile = join(root, OPENCODE_DIR_NAME, OPENCODE_TOOLS_DIR_NAME, OPENCODE_TOOL_FILE_NAME);
+
+    await this.runStep(steps, "remove_opencode_block", "从 OpenCode AGENTS.md 移除 super-ask 标记块", async () => {
+      let content: string;
+      try {
+        content = await readFileContent(agentsMd);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        throw e;
+      }
+      if (!content.includes(OPENCODE_MARKER_BEGIN)) return;
+      const updated = removeOpencodeBlock(content);
+      if (!updated.trim()) {
+        try {
+          await unlink(agentsMd);
+        } catch { /* 忽略 */ }
+      } else {
+        await writeFileContent(agentsMd, updated);
+      }
+    }, agentsMd);
+
+    await this.runStep(steps, "remove_opencode_tool", "删除 OpenCode super-ask 工具", async () => {
+      try {
+        await unlink(toolFile);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") throw e;
+      }
+    }, toolFile);
+
+    await this.runStep(steps, "verify_opencode_undeploy", "验证 OpenCode 规则与工具已移除", async () => {
+      try {
+        const content = await readFileContent(agentsMd);
+        if (content.includes(OPENCODE_MARKER_BEGIN)) {
+          throw new Error("AGENTS.md 中仍包含 super-ask 标记");
+        }
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") {
+          if (e instanceof Error && e.message.includes("super-ask 标记")) throw e;
+          throw e;
+        }
+      }
+      try {
+        await stat(toolFile);
+        throw new Error(`文件仍存在: ${toolFile}`);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") return;
+        if (e instanceof Error && e.message.startsWith("文件仍存在")) throw e;
+        throw e;
+      }
+    }, `${agentsMd}\n${toolFile}`);
+
+    return steps;
+  }
+
+  /**
    * 从 Qwen 工作区移除 super-ask-qwen.md 与 settings 引用
    */
   async undeployQwen(workspacePath: string): Promise<DeployStep[]> {
@@ -1008,6 +1276,21 @@ export class DeployManager {
         }
       } catch { /* 不存在 */ }
 
+      const opencodeDir = join(home, ".config", "opencode");
+      const opencodeAgentsMd = join(opencodeDir, "AGENTS.md");
+      const opencodeTool = join(opencodeDir, OPENCODE_TOOLS_DIR_NAME, OPENCODE_TOOL_FILE_NAME);
+      try {
+        const content = await readFileContent(opencodeAgentsMd);
+        const toolStat = await stat(opencodeTool);
+        if (content.includes(OPENCODE_MARKER_BEGIN) && toolStat.isFile()) {
+          deployed.push({
+            platform: "opencode",
+            workspacePath: opencodeDir,
+            rulesFiles: ["AGENTS.md", `${OPENCODE_TOOLS_DIR_NAME}/${OPENCODE_TOOL_FILE_NAME}`],
+          });
+        }
+      } catch { /* 不存在 */ }
+
       const qwenDir = join(home, QWEN_SETTINGS_DIR_NAME);
       const qwenFile = join(qwenDir, QWEN_CONTEXT_FILE_NAME);
       const qwenSettings = join(qwenDir, QWEN_SETTINGS_FILE_NAME);
@@ -1101,6 +1384,20 @@ export class DeployManager {
       }
     } catch { /* 不存在 */ }
 
+    const opencodeAgentsMd = join(root, "AGENTS.md");
+    const opencodeTool = join(root, OPENCODE_DIR_NAME, OPENCODE_TOOLS_DIR_NAME, OPENCODE_TOOL_FILE_NAME);
+    try {
+      const content = await readFileContent(opencodeAgentsMd);
+      const toolStat = await stat(opencodeTool);
+      if (content.includes(OPENCODE_MARKER_BEGIN) && toolStat.isFile()) {
+        deployed.push({
+          platform: "opencode",
+          workspacePath: root,
+          rulesFiles: ["AGENTS.md", `${OPENCODE_DIR_NAME}/${OPENCODE_TOOLS_DIR_NAME}/${OPENCODE_TOOL_FILE_NAME}`],
+        });
+      }
+    } catch { /* 不存在 */ }
+
     const qwenFile = join(root, QWEN_CONTEXT_FILE_NAME);
     const qwenSettings = join(root, QWEN_SETTINGS_DIR_NAME, QWEN_SETTINGS_FILE_NAME);
     try {
@@ -1125,10 +1422,20 @@ export class DeployManager {
     const steps: DeployStep[] = [];
     const seen = new Set<DeployPlatform>();
     const scope = req.scope ?? "workspace";
+    const platforms = req.platforms.filter((platform) => {
+      if (seen.has(platform)) return false;
+      seen.add(platform);
+      return true;
+    });
 
-    for (const p of req.platforms) {
-      if (seen.has(p)) continue;
-      seen.add(p);
+    for (const [index, p] of platforms.entries()) {
+      if (index > 0) {
+        steps.push({
+          id: `group:deploy:${p}`,
+          name: deployPlatformLabel(p),
+          status: "success",
+        });
+      }
       if (scope === "user") {
         if (p === "cursor") {
           steps.push(...(await this.deployCursorUser()));
@@ -1136,6 +1443,8 @@ export class DeployManager {
           steps.push(...(await this.deployVscodeUser()));
         } else if (p === "codex") {
           steps.push(...(await this.deployCodexUser()));
+        } else if (p === "opencode") {
+          steps.push(...(await this.deployOpencodeUser()));
         } else if (p === "qwen") {
           steps.push(...(await this.deployQwenUser()));
         }
@@ -1146,6 +1455,8 @@ export class DeployManager {
           steps.push(...(await this.deployVscode(req.workspacePath)));
         } else if (p === "codex") {
           steps.push(...(await this.deployCodex(req.workspacePath)));
+        } else if (p === "opencode") {
+          steps.push(...(await this.deployOpencode(req.workspacePath)));
         } else if (p === "qwen") {
           steps.push(...(await this.deployQwen(req.workspacePath)));
         }
@@ -1161,10 +1472,20 @@ export class DeployManager {
     const steps: DeployStep[] = [];
     const seen = new Set<DeployPlatform>();
     const scope = req.scope ?? "workspace";
+    const platforms = req.platforms.filter((platform) => {
+      if (seen.has(platform)) return false;
+      seen.add(platform);
+      return true;
+    });
 
-    for (const p of req.platforms) {
-      if (seen.has(p)) continue;
-      seen.add(p);
+    for (const [index, p] of platforms.entries()) {
+      if (index > 0) {
+        steps.push({
+          id: `group:undeploy:${p}`,
+          name: deployPlatformLabel(p),
+          status: "success",
+        });
+      }
       if (scope === "user") {
         if (p === "cursor") {
           steps.push(...(await this.undeployCursorUser()));
@@ -1172,6 +1493,8 @@ export class DeployManager {
           steps.push(...(await this.undeployVscodeUser()));
         } else if (p === "codex") {
           steps.push(...(await this.undeployCodexUser()));
+        } else if (p === "opencode") {
+          steps.push(...(await this.undeployOpencodeUser()));
         } else if (p === "qwen") {
           steps.push(...(await this.undeployQwenUser()));
         }
@@ -1182,6 +1505,8 @@ export class DeployManager {
           steps.push(...(await this.undeployVscode(req.workspacePath)));
         } else if (p === "codex") {
           steps.push(...(await this.undeployCodex(req.workspacePath)));
+        } else if (p === "opencode") {
+          steps.push(...(await this.undeployOpencode(req.workspacePath)));
         } else if (p === "qwen") {
           steps.push(...(await this.undeployQwen(req.workspacePath)));
         }

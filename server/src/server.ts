@@ -134,7 +134,7 @@ function isValidDeployRequest(body: unknown): body is DeployRequest {
   }
   if (!Array.isArray(b.platforms) || b.platforms.length === 0) return false;
   for (const p of b.platforms) {
-    if (p !== "cursor" && p !== "vscode" && p !== "codex" && p !== "qwen") return false;
+    if (p !== "cursor" && p !== "vscode" && p !== "codex" && p !== "opencode" && p !== "qwen") return false;
   }
   return true;
 }
@@ -151,7 +151,7 @@ function isValidUndeployRequest(body: unknown): body is UndeployRequest {
   }
   if (!Array.isArray(b.platforms)) return false;
   for (const p of b.platforms) {
-    if (p !== "cursor" && p !== "vscode" && p !== "codex" && p !== "qwen") return false;
+    if (p !== "cursor" && p !== "vscode" && p !== "codex" && p !== "opencode" && p !== "qwen") return false;
   }
   if (b.cleanConfig !== undefined && typeof b.cleanConfig !== "boolean") {
     return false;
@@ -337,35 +337,23 @@ export function startSuperAsk(
         return;
       }
 
-      const noWait = (ask as unknown as Record<string, unknown>).noWait === true;
-      if (noWait) {
-        sessionManager.handleNoWaitRequest(ask, res);
-      } else {
-        try {
-          await sessionManager.handleAskRequest(ask, req, res);
-        } catch {
-          /* 错误响应已由 handleAskRequest / close 处理，或已 end */
-        }
-      }
-      return;
-    }
-
-    // GET /api/poll — 轮询检查回复（配合 noWait 模式）
-    if (method === "GET" && pathname === "/api/poll") {
-      if (!requireAuth(req, res)) return;
-      const pollUrl = new URL(req.url ?? "/", "http://127.0.0.1");
-      const chatSessionId = pollUrl.searchParams.get("chatSessionId");
-      if (!chatSessionId) {
+      if ((parsed as Record<string, unknown>).noWait === true) {
         res.statusCode = 400;
         res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "缺少 chatSessionId 参数", code: "INVALID_REQUEST" }));
+        res.end(
+          JSON.stringify({
+            error: "轮询模式已移除，请使用阻塞模式",
+            code: "INVALID_REQUEST",
+          })
+        );
         return;
       }
-      const result = sessionManager.pollReply(chatSessionId);
-      // `not_found` is a business state, not a transport error.
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json; charset=utf-8");
-      res.end(JSON.stringify(result));
+
+      try {
+        await sessionManager.handleAskRequest(ask, req, res);
+      } catch {
+        /* 错误响应已由 handleAskRequest / close 处理，或已 end */
+      }
       return;
     }
 

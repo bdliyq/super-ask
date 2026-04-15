@@ -7,9 +7,11 @@ export interface Translations {
   cancel: string;
   save: string;
   back: string;
+  copy: string;
 
   // 会话面板
   sessions: string;
+  sessionList: string;
   sessionsHint: string;
   noSessions: string;
   pendingReply: string;
@@ -28,6 +30,7 @@ export interface Translations {
   statusPending: string;
   statusReplied: string;
   statusCancelled: string;
+  statusAcked: string;
   statusAwaiting: string;
 
   // 聊天视图
@@ -46,6 +49,9 @@ export interface Translations {
   fileTooLarge: string;
   imageFormatError: string;
   uploadFailed: string;
+  replyRequestExpired: string;
+  replySocketUnavailable: string;
+  replyConfirmTimeout: string;
 
   // 斜杠命令
   slashHint: string;
@@ -71,6 +77,8 @@ export interface Translations {
   settings: string;
   deployManagement: string;
   systemSettings: string;
+  about: string;
+  aboutLoading: string;
   language: string;
   languageDesc: string;
   langZh: string;
@@ -167,8 +175,10 @@ export const zh: Translations = {
   cancel: "取消",
   save: "保存",
   back: "返回",
+  copy: "复制",
 
   sessions: "会话",
+  sessionList: "会话列表",
   sessionsHint: "（↑↓ 切换）",
   noSessions: "暂无会话",
   pendingReply: "有待回复",
@@ -185,6 +195,7 @@ export const zh: Translations = {
   statusPending: "等待中",
   statusReplied: "已回复",
   statusCancelled: "已取消",
+  statusAcked: "已送达",
   statusAwaiting: "等待中",
 
   unnamedSession: "未命名会话",
@@ -201,6 +212,9 @@ export const zh: Translations = {
   fileTooLarge: "超过 10MB",
   imageFormatError: "图片仅支持 JPEG/PNG/GIF/WebP",
   uploadFailed: "上传失败",
+  replyRequestExpired: "当前请求已失效，请等待 Agent 发起下一轮后再回复",
+  replySocketUnavailable: "当前连接已断开，请稍后重试",
+  replyConfirmTimeout: "服务端确认超时，请稍后重试",
 
   slashHint: "输入 / 打开命令列表",
   cmdConfirm: "/confirm",
@@ -222,6 +236,8 @@ export const zh: Translations = {
   settings: "配置",
   deployManagement: "部署管理",
   systemSettings: "系统设置",
+  about: "关于",
+  aboutLoading: "正在加载关于页面内容…",
   language: "语言",
   languageDesc: "选择界面显示语言",
   langZh: "中文",
@@ -290,7 +306,7 @@ export const zh: Translations = {
   removeTag: "移除标签",
   tooltipTags: "标签",
 
-  agentAcked: "Agent 已收到",
+  agentAcked: "已送达至 Agent",
 
   deployConnecting: "正在连接服务器并执行…",
   deployParseFailed: "解析响应失败",
@@ -309,8 +325,10 @@ export const en: Translations = {
   cancel: "Cancel",
   save: "Save",
   back: "Back",
+  copy: "Copy",
 
   sessions: "Sessions",
+  sessionList: "Session List",
   sessionsHint: "(↑↓ switch)",
   noSessions: "No sessions",
   pendingReply: "Pending reply",
@@ -327,6 +345,7 @@ export const en: Translations = {
   statusPending: "Awaiting",
   statusReplied: "Replied",
   statusCancelled: "Cancelled",
+  statusAcked: "Delivered",
   statusAwaiting: "Awaiting",
 
   unnamedSession: "Unnamed session",
@@ -343,6 +362,9 @@ export const en: Translations = {
   fileTooLarge: "Exceeds 10MB",
   imageFormatError: "Only JPEG/PNG/GIF/WebP images allowed",
   uploadFailed: "Upload failed",
+  replyRequestExpired: "This request has expired. Wait for the agent to ask again before replying.",
+  replySocketUnavailable: "Connection is unavailable. Please try again shortly.",
+  replyConfirmTimeout: "Server confirmation timed out. Please try again shortly.",
 
   slashHint: "Type / to open commands",
   cmdConfirm: "/confirm",
@@ -364,6 +386,8 @@ export const en: Translations = {
   settings: "Settings",
   deployManagement: "Deploy Management",
   systemSettings: "System Settings",
+  about: "About",
+  aboutLoading: "Loading about page content…",
   language: "Language",
   languageDesc: "Choose the display language",
   langZh: "中文",
@@ -432,7 +456,7 @@ export const en: Translations = {
   removeTag: "Remove tag",
   tooltipTags: "Tags",
 
-  agentAcked: "Agent received",
+  agentAcked: "Delivered to agent",
 
   deployConnecting: "Connecting to server…",
   deployParseFailed: "Failed to parse response",

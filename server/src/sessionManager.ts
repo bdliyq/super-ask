@@ -59,7 +59,6 @@ type PendingEntry = {
 export class SessionManager {
   private sessions = new Map<string, SessionInfo>();
   private pending = new Map<string, PendingEntry>();
-  private pollReplies = new Map<string, AskResponse>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private shuttingDown = false;
   private startedAt = Date.now();
@@ -423,104 +422,6 @@ export class SessionManager {
   }
 
   /**
-   * 处理 noWait 模式的 POST /super-ask：立即返回，不阻塞
-   */
-  handleNoWaitRequest(req: AskRequest, httpRes: ServerResponse): void {
-    if (this.shuttingDown) {
-      this.sendJsonError(httpRes, 503, "服务器正在关闭", "SERVER_SHUTTING_DOWN");
-      return;
-    }
-
-    let chatSessionId = req.chatSessionId;
-    let isNewSession = false;
-
-    if (!chatSessionId) {
-      if (this.sessions.size >= this.config.maxSessions) {
-        this.sendJsonError(httpRes, 503, "Session 数量已达上限", "INVALID_REQUEST");
-        return;
-      }
-      chatSessionId = randomUUID();
-      isNewSession = true;
-      const title = req.title?.trim() || "新对话";
-      const now = Date.now();
-      this.sessions.set(chatSessionId, {
-        chatSessionId,
-        title,
-        history: [],
-        hasPending: false,
-        createdAt: now,
-        lastActiveAt: now,
-        ...(req.source !== undefined ? { source: req.source.trim() || undefined } : {}),
-        ...(req.workspaceRoot !== undefined ? { workspaceRoot: req.workspaceRoot.trim() || undefined } : {}),
-      });
-    } else {
-      const existing = this.sessions.get(chatSessionId);
-      if (!existing) {
-        this.sendJsonError(httpRes, 404, "Session 不存在", "SESSION_NOT_FOUND");
-        return;
-      }
-    }
-
-    const session = this.sessions.get(chatSessionId)!;
-    session.lastActiveAt = Date.now();
-    if (req.source !== undefined) session.source = req.source.trim() || undefined;
-    if (req.workspaceRoot !== undefined) session.workspaceRoot = req.workspaceRoot.trim() || undefined;
-
-    const agentEntry: HistoryEntry = {
-      role: "agent",
-      summary: req.summary,
-      question: req.question,
-      options: req.options,
-      timestamp: Date.now(),
-    };
-    session.history.push(agentEntry);
-    session.hasPending = true;
-    session.requestStatus = "pending";
-    session.title = req.title?.trim() || session.title;
-
-    this.pollReplies.delete(chatSessionId);
-
-    const wsMsg: WsNewRequest = {
-      type: "new_request",
-      chatSessionId,
-      title: session.title,
-      summary: req.summary,
-      question: req.question,
-      options: req.options,
-      isNewSession,
-      source: session.source,
-      workspaceRoot: session.workspaceRoot,
-    };
-    this.wsBroadcast(wsMsg);
-    this.wsBroadcast({
-      type: "session_update",
-      chatSessionId,
-      status: "pending",
-    } satisfies WsSessionUpdate);
-
-    void this.persistSession(chatSessionId);
-
-    httpRes.statusCode = 200;
-    httpRes.setHeader("Content-Type", "application/json; charset=utf-8");
-    httpRes.end(JSON.stringify({ chatSessionId, status: "pending" }));
-  }
-
-  /**
-   * 轮询检查是否有回复
-   */
-  pollReply(chatSessionId: string): { status: "pending" | "replied" | "not_found"; chatSessionId: string; feedback?: string; attachments?: FileAttachment[] } {
-    const reply = this.pollReplies.get(chatSessionId);
-    if (reply) {
-      this.pollReplies.delete(chatSessionId);
-      return { status: "replied", chatSessionId, feedback: reply.feedback, attachments: reply.attachments };
-    }
-    const session = this.sessions.get(chatSessionId);
-    if (!session) return { status: "not_found", chatSessionId };
-    if (session.hasPending) return { status: "pending", chatSessionId };
-    return { status: "not_found", chatSessionId };
-  }
-
-  /**
    * 将 AskResponse 写入 HTTP 响应
    */
   private writeAskResponse(httpRes: ServerResponse, body: AskResponse): void {
@@ -559,12 +460,10 @@ export class SessionManager {
     const pending = this.pending.get(chatSessionId);
     const session = this.sessions.get(chatSessionId);
 
-    if (!pending && !(session?.hasPending)) return false;
+    if (!pending || !session || !session.hasPending) return false;
 
-    if (pending) {
-      this.pending.delete(chatSessionId);
-      pending.cleanup();
-    }
+    this.pending.delete(chatSessionId);
+    pending.cleanup();
 
     const safeAtt =
       attachments && attachments.length > 0
@@ -595,12 +494,8 @@ export class SessionManager {
       ...(safeAtt && safeAtt.length > 0 ? { attachments: safeAtt } : {}),
     };
 
-    if (pending) {
-      this.writeAskResponse(pending.httpRes, response);
-      pending.resolve(response);
-    } else {
-      this.pollReplies.set(chatSessionId, response);
-    }
+    this.writeAskResponse(pending.httpRes, response);
+    pending.resolve(response);
 
     this.wsBroadcast({
       type: "session_update",

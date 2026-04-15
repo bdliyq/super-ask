@@ -13,13 +13,20 @@ const THEME_STORAGE_KEY = "super-ask-theme";
 const PANEL_WIDTH_KEY = "super-ask-panel-width";
 const PANEL_VISIBLE_KEY = "super-ask-panel-visible";
 const QUEUE_STORAGE_KEY = "super-ask-queue";
+const VIEW_STORAGE_KEY = "super-ask-view";
 const DEFAULT_PANEL_WIDTH = 250;
 const MIN_PANEL_WIDTH = 160;
 const MAX_PANEL_WIDTH = 500;
 
+export function resolveInitialView(stored: string | null): "chat" | "settings" {
+  return stored === "settings" ? "settings" : "chat";
+}
+
 export default function App() {
   const { t } = useI18n();
-  const [view, setView] = useState<"chat" | "settings">("chat");
+  const [view, setView] = useState<"chat" | "settings">(() =>
+    resolveInitialView(localStorage.getItem(VIEW_STORAGE_KEY)),
+  );
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const stored = localStorage.getItem(THEME_STORAGE_KEY) as "light" | "dark" | null;
@@ -51,6 +58,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(PANEL_VISIBLE_KEY, String(panelVisible));
   }, [panelVisible]);
+
+  useEffect(() => {
+    localStorage.setItem(VIEW_STORAGE_KEY, view);
+  }, [view]);
 
   const togglePanel = useCallback(() => {
     setPanelVisible((v) => !v);
@@ -98,7 +109,6 @@ export default function App() {
     sessionsRef,
     setActiveSession,
     handleServerMessage,
-    appendUserReply,
     activeCount,
     pendingCount,
   } = useSessions();
@@ -131,7 +141,12 @@ export default function App() {
   }, []);
 
   const sendReplyRef = useRef<typeof sendReply>(null!);
-  const appendUserReplyRef = useRef<typeof appendUserReply>(null!);
+
+  const getReplyErrorMessage = useCallback((code?: "not_pending" | "socket_unavailable" | "timeout") => {
+    if (code === "not_pending") return t.replyRequestExpired;
+    if (code === "timeout") return t.replyConfirmTimeout;
+    return t.replySocketUnavailable;
+  }, [t]);
 
   const handleServerMessageWithQueue = useCallback((msg: WsServerMessage) => {
     handleServerMessage(msg);
@@ -170,8 +185,15 @@ export default function App() {
         }
         syncQueueState();
         setTimeout(() => {
-          sendReplyRef.current(msg.chatSessionId, first.text, first.attachments, first.displayText);
-          appendUserReplyRef.current(msg.chatSessionId, first.displayText, first.attachments);
+          void sendReplyRef
+            .current(msg.chatSessionId, first.text, first.attachments, first.displayText)
+            .then((result) => {
+              if (result.accepted) return;
+              const existing = replyQueueRef.current.get(msg.chatSessionId) || [];
+              existing.unshift(first);
+              replyQueueRef.current.set(msg.chatSessionId, existing);
+              syncQueueState();
+            });
         }, 100);
       }
     }
@@ -182,26 +204,26 @@ export default function App() {
   });
 
   sendReplyRef.current = sendReply;
-  appendUserReplyRef.current = appendUserReply;
 
   const onSendReply = useCallback(
-    (chatSessionId: string, feedback: string, attachments?: FileAttachment[]) => {
-      void (async () => {
-        const suffix = await getActivePredefinedSuffix();
-        const feedbackWithSuffix = feedback + suffix;
-        const session = sessionsRef.current.get(chatSessionId);
-        if (session?.hasPending) {
-          sendReply(chatSessionId, feedbackWithSuffix, attachments, feedback);
-          appendUserReply(chatSessionId, feedback, attachments);
-        } else {
-          const existing = replyQueueRef.current.get(chatSessionId) || [];
-          existing.push({ text: feedbackWithSuffix, displayText: feedback, attachments });
-          replyQueueRef.current.set(chatSessionId, existing);
-          syncQueueState();
+    async (chatSessionId: string, feedback: string, attachments?: FileAttachment[]) => {
+      const suffix = await getActivePredefinedSuffix();
+      const feedbackWithSuffix = feedback + suffix;
+      const session = sessionsRef.current.get(chatSessionId);
+      if (session?.hasPending) {
+        const result = await sendReply(chatSessionId, feedbackWithSuffix, attachments, feedback);
+        if (!result.accepted) {
+          throw new Error(getReplyErrorMessage(result.code));
         }
-      })();
+        return;
+      }
+
+      const existing = replyQueueRef.current.get(chatSessionId) || [];
+      existing.push({ text: feedbackWithSuffix, displayText: feedback, attachments });
+      replyQueueRef.current.set(chatSessionId, existing);
+      syncQueueState();
     },
-    [appendUserReply, sendReply, syncQueueState],
+    [getReplyErrorMessage, sendReply, sessionsRef, syncQueueState],
   );
 
   const onRemoveQueuedReply = useCallback(

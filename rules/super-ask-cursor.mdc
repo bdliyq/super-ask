@@ -24,7 +24,7 @@ alwaysApply: true
 1. **第一次调用**：不传 `chatSessionId`，Server 返回新的 `chatSessionId`
 2. **第一次调用之后的所有后续调用**：必须从上一次响应中提取 `chatSessionId` 并原样传入
 3. **保存方式**：解析 super-ask 的 JSON 响应，提取 `chatSessionId` 字段的值，在下一次调用时通过 `--session-id` 传入
-4. **如果丢失 chatSessionId**：回忆之前的响应输出，找到 chatSessionId 值
+4. **如果丢失 `chatSessionId`**：不得绕过 super-ask 直接回复；先从上一次响应或可用记录找回。若找不到，继续调用 super-ask 新建会话，并明确说明“本次已新建会话，原会话可能不连续”。
 
 ## 完整工作循环示例
 

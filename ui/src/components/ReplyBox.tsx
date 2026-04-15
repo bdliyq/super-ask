@@ -38,7 +38,7 @@ interface ReplyBoxProps {
   quotedRefs?: QuotedRef[];
   onRemoveQuotedRef?: (index: number) => void;
   onClearQuotedRefs?: () => void;
-  onSend: (text: string, attachments?: FileAttachment[]) => void;
+  onSend: (text: string, attachments?: FileAttachment[]) => Promise<void>;
 }
 
 const DRAFT_PREFIX = "super-ask-draft-";
@@ -288,12 +288,18 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
       });
       fullText = quoteParts.join("\n\n") + "\n\n" + trimmed;
     }
-    onSend(fullText, uploaded.length > 0 ? uploaded : undefined);
-    onClearQuotedRefs?.();
-    setAttachments([]);
-    setText("");
-    localStorage.removeItem(draftKey);
-    taRef.current?.focus();
+    try {
+      await onSend(fullText, uploaded.length > 0 ? uploaded : undefined);
+      onClearQuotedRefs?.();
+      setAttachments([]);
+      setText("");
+      localStorage.removeItem(draftKey);
+      taRef.current?.focus();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : (locale === "zh" ? "发送失败" : "Send failed");
+      setUploadError(message);
+    }
   }, [attachments, draftKey, locale, onClearQuotedRefs, onSend, quotedRefs, text]);
 
   const onInputChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -334,12 +340,18 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
   );
 
   const pickOption = useCallback(
-    (opt: string) => {
+    async (opt: string) => {
       if (disabled) return;
-      onSend(opt);
+      try {
+        await onSend(opt);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : (locale === "zh" ? "发送失败" : "Send failed");
+        setUploadError(message);
+      }
       taRef.current?.focus();
     },
-    [disabled, onSend],
+    [disabled, locale, onSend],
   );
 
   const canSend = text.trim().length > 0 || attachments.length > 0;

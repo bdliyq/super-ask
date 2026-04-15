@@ -6,7 +6,7 @@ export interface AskRequest {
   question: string;
   chatSessionId?: string;
   options?: string[];
-  /** 来源标识：cursor / vscode / codex / qwen / 自定义 */
+  /** 来源标识：cursor / vscode / codex / opencode / qwen / 自定义 */
   source?: string;
   /** Agent 所在工作区根路径 */
   workspaceRoot?: string;
@@ -46,7 +46,14 @@ export interface ErrorResponse {
 
 // === WebSocket Messages ===
 
-export type WsServerMessage = WsNewRequest | WsSessionUpdate | WsSync | WsSessionDeleted | WsPinUpdate | WsTagUpdate;
+export type WsServerMessage =
+  | WsNewRequest
+  | WsSessionUpdate
+  | WsSync
+  | WsSessionDeleted
+  | WsPinUpdate
+  | WsTagUpdate
+  | WsReplyResult;
 
 export type WsClientMessage = WsReply | WsDeleteSession;
 
@@ -81,9 +88,19 @@ export interface WsReply {
   type: "reply";
   chatSessionId: string;
   feedback: string;
+  /** 客户端本地请求 ID，用于将发送结果回填给发起该次回复的页面 */
+  clientRequestId?: string;
   /** 干净文本（不含预置消息后缀），用于历史存储和UI展示 */
   displayFeedback?: string;
   attachments?: FileAttachment[];
+}
+
+export interface WsReplyResult {
+  type: "reply_result";
+  chatSessionId: string;
+  clientRequestId?: string;
+  accepted: boolean;
+  code?: "not_pending";
 }
 
 export interface WsDeleteSession {
@@ -165,7 +182,7 @@ export interface PidFileContent {
 
 // === Deploy API ===
 
-export type DeployPlatform = "cursor" | "vscode" | "codex" | "qwen";
+export type DeployPlatform = "cursor" | "vscode" | "codex" | "opencode" | "qwen";
 
 /** 部署范围：用户全局或单个工作区 */
 export type DeployScope = "user" | "workspace";

@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { DeployScope, DeployStatusResponse } from "@shared/types";
+import type { DeployPlatform, DeployScope, DeployStatusResponse } from "@shared/types";
 import { withAuthHeaders } from "../auth";
 import { useI18n } from "../i18n";
 
 /** 单平台部署探测结果（与 DeployStatusResponse.deployed 元素一致） */
 type DeployStatusEntry = DeployStatusResponse["deployed"][number];
-
-/** 部署目标平台（与后端约定一致） */
-type DeployPlatform = "cursor" | "vscode" | "codex" | "qwen";
 
 /** 单步执行状态 */
 interface DeployStep {
@@ -30,12 +27,14 @@ function platformsPayload(
   cursor: boolean,
   vscode: boolean,
   codex: boolean,
+  opencode: boolean,
   qwen: boolean,
 ): DeployPlatform[] {
   const list: DeployPlatform[] = [];
   if (cursor) list.push("cursor");
   if (vscode) list.push("vscode");
   if (codex) list.push("codex");
+  if (opencode) list.push("opencode");
   if (qwen) list.push("qwen");
   return list;
 }
@@ -59,6 +58,7 @@ export function DeployPanel() {
   const [cursorChecked, setCursorChecked] = useState(true);
   const [vscodeChecked, setVscodeChecked] = useState(true);
   const [codexChecked, setCodexChecked] = useState(true);
+  const [opencodeChecked, setOpencodeChecked] = useState(true);
   const [qwenChecked, setQwenChecked] = useState(true);
   const [cleanConfig, setCleanConfig] = useState(false);
   const [steps, setSteps] = useState<DeployStep[]>([]);
@@ -68,8 +68,8 @@ export function DeployPanel() {
   const [deployStatus, setDeployStatus] = useState<DeployStatusEntry[]>([]);
 
   const platforms = useMemo(
-    () => platformsPayload(cursorChecked, vscodeChecked, codexChecked, qwenChecked),
-    [cursorChecked, vscodeChecked, codexChecked, qwenChecked],
+    () => platformsPayload(cursorChecked, vscodeChecked, codexChecked, opencodeChecked, qwenChecked),
+    [cursorChecked, vscodeChecked, codexChecked, opencodeChecked, qwenChecked],
   );
 
   /**
@@ -213,38 +213,38 @@ export function DeployPanel() {
   return (
     <div className="deploy-panel">
       <div className="deploy-panel__body">
-        <div className="deploy-panel__label">{t.deployScope}:</div>
-        <div className="deploy-panel__scope" role="radiogroup" aria-label={t.deployScope}>
-          <label className="deploy-panel__scope-option">
-            <input
-              type="radio"
-              name="deploy-scope"
-              checked={scope === "user"}
-              onChange={() => setScope("user")}
-              disabled={busy}
-            />
-            <span>{t.scopeUser}</span>
-          </label>
-          <label className="deploy-panel__scope-option">
-            <input
-              type="radio"
-              name="deploy-scope"
-              checked={scope === "workspace"}
-              onChange={() => setScope("workspace")}
-              disabled={busy}
-            />
-            <span>{t.scopeWorkspace}</span>
-          </label>
+        <div className="system-settings__section">
+          <h2 className="system-settings__section-title">{t.deployScope}</h2>
+          <p className="system-settings__section-desc">
+            {scope === "user" ? t.scopeUserDesc : t.scopeWorkspaceDesc}
+          </p>
+          <div className="deploy-panel__scope" role="radiogroup" aria-label={t.deployScope}>
+            <label className="deploy-panel__scope-option">
+              <input
+                type="radio"
+                name="deploy-scope"
+                checked={scope === "user"}
+                onChange={() => setScope("user")}
+                disabled={busy}
+              />
+              <span>{t.scopeUser}</span>
+            </label>
+            <label className="deploy-panel__scope-option">
+              <input
+                type="radio"
+                name="deploy-scope"
+                checked={scope === "workspace"}
+                onChange={() => setScope("workspace")}
+                disabled={busy}
+              />
+              <span>{t.scopeWorkspace}</span>
+            </label>
+          </div>
         </div>
-        <p className="deploy-panel__scope-desc">
-          {scope === "user" ? t.scopeUserDesc : t.scopeWorkspaceDesc}
-        </p>
 
         {scope === "workspace" ? (
-          <>
-            <label className="deploy-panel__label" htmlFor="deploy-workspace">
-              {t.workspacePath}:
-            </label>
+          <div className="system-settings__section">
+            <h2 className="system-settings__section-title">{t.workspacePath}</h2>
             <input
               id="deploy-workspace"
               className="deploy-panel__input"
@@ -255,148 +255,165 @@ export function DeployPanel() {
               onChange={(e) => setWorkspacePath(e.target.value)}
               disabled={busy}
             />
-          </>
+          </div>
         ) : null}
 
-        <div className="deploy-panel__label">{t.platforms}:</div>
-        <div className="deploy-panel__platforms">
-          <label className="deploy-panel__check">
+        <div className="system-settings__section">
+          <h2 className="system-settings__section-title">{t.platforms}</h2>
+          <div className="deploy-panel__platforms">
+            <label className="deploy-panel__check">
+              <input
+                type="checkbox"
+                checked={cursorChecked}
+                onChange={(e) => setCursorChecked(e.target.checked)}
+                disabled={busy}
+              />
+              <span>Cursor</span>
+            </label>
+            <label className="deploy-panel__check">
+              <input
+                type="checkbox"
+                checked={vscodeChecked}
+                onChange={(e) => setVscodeChecked(e.target.checked)}
+                disabled={busy}
+              />
+              <span>Copilot</span>
+            </label>
+            <label className="deploy-panel__check">
+              <input
+                type="checkbox"
+                checked={codexChecked}
+                onChange={(e) => setCodexChecked(e.target.checked)}
+                disabled={busy}
+              />
+              <span>Codex</span>
+            </label>
+            <label className="deploy-panel__check">
+              <input
+                type="checkbox"
+                checked={qwenChecked}
+                onChange={(e) => setQwenChecked(e.target.checked)}
+                disabled={busy}
+              />
+              <span>Qwen</span>
+            </label>
+            <label className="deploy-panel__check">
+              <input
+                type="checkbox"
+                checked={opencodeChecked}
+                onChange={(e) => setOpencodeChecked(e.target.checked)}
+                disabled={busy}
+              />
+              <span>OpenCode</span>
+            </label>
+          </div>
+
+          <div className="deploy-panel__actions">
+            <button
+              type="button"
+              className="deploy-panel__btn deploy-panel__btn--deploy"
+              onClick={handleDeploy}
+              disabled={!canSubmit}
+            >
+              {t.deploy}
+            </button>
+            <button
+              type="button"
+              className="deploy-panel__btn deploy-panel__btn--undeploy"
+              onClick={handleUndeploy}
+              disabled={!canSubmit}
+            >
+              {t.undeploy}
+            </button>
+          </div>
+
+          <label className="deploy-panel__clean">
             <input
               type="checkbox"
-              checked={cursorChecked}
-              onChange={(e) => setCursorChecked(e.target.checked)}
+              checked={cleanConfig}
+              onChange={(e) => setCleanConfig(e.target.checked)}
               disabled={busy}
             />
-            <span>Cursor</span>
+            <span>{t.cleanConfig}</span>
           </label>
-          <label className="deploy-panel__check">
-            <input
-              type="checkbox"
-              checked={vscodeChecked}
-              onChange={(e) => setVscodeChecked(e.target.checked)}
-              disabled={busy}
-            />
-            <span>Copilot</span>
-          </label>
-          <label className="deploy-panel__check">
-            <input
-              type="checkbox"
-              checked={codexChecked}
-              onChange={(e) => setCodexChecked(e.target.checked)}
-              disabled={busy}
-            />
-            <span>Codex</span>
-          </label>
-          <label className="deploy-panel__check">
-            <input
-              type="checkbox"
-              checked={qwenChecked}
-              onChange={(e) => setQwenChecked(e.target.checked)}
-              disabled={busy}
-            />
-            <span>Qwen</span>
-          </label>
+
+          {lastError ? <p className="deploy-panel__error">{lastError}</p> : null}
         </div>
 
-        <div className="deploy-panel__status" aria-live="polite">
-          <div className="deploy-panel__status-title">{t.currentStatus}</div>
-          {(["cursor", "vscode", "codex", "qwen"] as const).map((pf) => {
-            const entry = deployStatus.find((d) => d.platform === pf);
-            const deployed = Boolean(entry && entry.rulesFiles.length > 0);
-            const label =
-              pf === "cursor"
-                ? "Cursor"
-                : pf === "vscode"
-                  ? "Copilot"
-                  : pf === "codex"
-                    ? "Codex"
-                    : "Qwen";
-            const filesText = deployed && entry ? entry.rulesFiles.join(", ") : "";
-            return (
-              <div key={pf} className="deploy-panel__status-item">
-                <span aria-hidden>{deployed ? "✅" : "❌"}</span>
-                <span>
-                  <strong>{label}</strong>
-                  {deployed ? (
-                    <>
-                      ：{t.deployStateDeployed}
-                      <span className="deploy-panel__status-detail">（{filesText}）</span>
-                    </>
+        <div className="system-settings__section">
+          <h2 className="system-settings__section-title">{t.currentStatus}</h2>
+          <div className="deploy-panel__status" aria-live="polite">
+            {(["cursor", "vscode", "codex", "opencode", "qwen"] as const).map((pf) => {
+              const entry = deployStatus.find((d) => d.platform === pf);
+              const deployed = Boolean(entry && entry.rulesFiles.length > 0);
+              const label =
+                pf === "cursor"
+                  ? "Cursor"
+                  : pf === "vscode"
+                    ? "Copilot"
+                    : pf === "codex"
+                      ? "Codex"
+                      : pf === "opencode"
+                        ? "OpenCode"
+                        : "Qwen";
+              const filesText = deployed && entry ? entry.rulesFiles.join(", ") : "";
+              return (
+                <div key={pf} className="deploy-panel__status-item">
+                  <span aria-hidden>{deployed ? "✅" : "❌"}</span>
+                  <span>
+                    <strong>{label}</strong>
+                    {deployed ? (
+                      <>
+                        ：{t.deployStateDeployed}
+                        <span className="deploy-panel__status-detail">（{filesText}）</span>
+                      </>
+                    ) : (
+                      <>：{t.deployStateNotDeployed}</>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="system-settings__section">
+          <h2 className="system-settings__section-title">{t.deploySteps}</h2>
+          <div className="deploy-panel__steps" aria-live="polite">
+            {steps.length === 0 ? (
+              <p className="deploy-panel__steps-empty">{t.noSteps}</p>
+            ) : (
+              <ul className="deploy-panel__steps-list">
+                {steps.map((step) =>
+                  isGroupDivider(step) ? (
+                    <li key={step.id} className="deploy-step deploy-step--divider">
+                      <div className="deploy-step__separator">{step.name}</div>
+                    </li>
                   ) : (
-                    <>：{t.deployStateNotDeployed}</>
-                  )}
-                </span>
-              </div>
-            );
-          })}
+                    <li key={step.id} className="deploy-step">
+                      <span
+                        className={`deploy-step__icon deploy-step__icon--${step.status}`}
+                        aria-hidden
+                      >
+                        {step.status === "pending" && "○"}
+                        {step.status === "running" && <span className="deploy-step__spinner" />}
+                        {step.status === "success" && "✓"}
+                        {step.status === "failed" && "✗"}
+                        {step.status === "skipped" && "—"}
+                      </span>
+                      <span className="deploy-step__text">
+                        <span className="deploy-step__name">{step.name}</span>
+                        {step.detail ? (
+                          <span className="deploy-step__detail"> — {step.detail}</span>
+                        ) : null}
+                      </span>
+                    </li>
+                  ),
+                )}
+              </ul>
+            )}
+          </div>
         </div>
-
-        <div className="deploy-panel__actions">
-          <button
-            type="button"
-            className="deploy-panel__btn deploy-panel__btn--deploy"
-            onClick={handleDeploy}
-            disabled={!canSubmit}
-          >
-            {t.deploy}
-          </button>
-          <button
-            type="button"
-            className="deploy-panel__btn deploy-panel__btn--undeploy"
-            onClick={handleUndeploy}
-            disabled={!canSubmit}
-          >
-            {t.undeploy}
-          </button>
-        </div>
-
-        <div className="deploy-panel__steps" aria-live="polite">
-          <div className="deploy-panel__steps-title">{t.deploySteps}</div>
-          {steps.length === 0 ? (
-            <p className="deploy-panel__steps-empty">{t.noSteps}</p>
-          ) : (
-            <ul className="deploy-panel__steps-list">
-              {steps.map((step) =>
-                isGroupDivider(step) ? (
-                  <li key={step.id} className="deploy-step deploy-step--divider">
-                    <div className="deploy-step__separator">{step.name}</div>
-                  </li>
-                ) : (
-                  <li key={step.id} className="deploy-step">
-                    <span
-                      className={`deploy-step__icon deploy-step__icon--${step.status}`}
-                      aria-hidden
-                    >
-                      {step.status === "pending" && "○"}
-                      {step.status === "running" && <span className="deploy-step__spinner" />}
-                      {step.status === "success" && "✓"}
-                      {step.status === "failed" && "✗"}
-                      {step.status === "skipped" && "—"}
-                    </span>
-                    <span className="deploy-step__text">
-                      <span className="deploy-step__name">{step.name}</span>
-                      {step.detail ? (
-                        <span className="deploy-step__detail"> — {step.detail}</span>
-                      ) : null}
-                    </span>
-                  </li>
-                ),
-              )}
-            </ul>
-          )}
-        </div>
-
-        <label className="deploy-panel__clean">
-          <input
-            type="checkbox"
-            checked={cleanConfig}
-            onChange={(e) => setCleanConfig(e.target.checked)}
-            disabled={busy}
-          />
-          <span>{t.cleanConfig}</span>
-        </label>
-
-        {lastError ? <p className="deploy-panel__error">{lastError}</p> : null}
       </div>
     </div>
   );

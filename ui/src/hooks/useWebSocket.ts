@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FileAttachment, WsServerMessage } from "@shared/types";
+import type { FileAttachment, WsReplyResult, WsServerMessage } from "@shared/types";
 import { DEFAULT_CONFIG } from "@shared/types";
 import { getAuthToken } from "../auth";
 
@@ -29,6 +29,17 @@ function getWsUrl(port: number, token: string): string {
 
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 10_000;
+const REPLY_RESULT_TIMEOUT_MS = 5000;
+
+export interface SendReplyResult {
+  accepted: boolean;
+  code?: WsReplyResult["code"] | "socket_unavailable" | "timeout";
+}
+
+interface PendingReplyResolver {
+  resolve: (result: SendReplyResult) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 /**
  * 管理 WebSocket：连接、指数退避重连、解析 WsServerMessage、发送回复。
@@ -43,6 +54,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldReconnectRef = useRef(true);
+  const pendingRepliesRef = useRef<Map<string, PendingReplyResolver>>(new Map());
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
@@ -65,6 +77,22 @@ export function useWebSocket(options: UseWebSocketOptions) {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data as string) as WsServerMessage;
+        if (data.type === "reply_result") {
+          const requestId =
+            typeof data.clientRequestId === "string" ? data.clientRequestId : "";
+          if (requestId) {
+            const pendingReply = pendingRepliesRef.current.get(requestId);
+            if (pendingReply) {
+              clearTimeout(pendingReply.timer);
+              pendingRepliesRef.current.delete(requestId);
+              pendingReply.resolve({
+                accepted: data.accepted,
+                code: data.code,
+              });
+            }
+          }
+          return;
+        }
         onMessageRef.current(data);
       } catch {
         // 忽略无法解析的帧
@@ -78,6 +106,11 @@ export function useWebSocket(options: UseWebSocketOptions) {
     ws.onclose = () => {
       setConnected(false);
       wsRef.current = null;
+      for (const [requestId, pendingReply] of pendingRepliesRef.current) {
+        clearTimeout(pendingReply.timer);
+        pendingReply.resolve({ accepted: false, code: "socket_unavailable" });
+        pendingRepliesRef.current.delete(requestId);
+      }
       if (!shouldReconnectRef.current) return;
 
       const attempt = reconnectAttemptRef.current;
@@ -95,6 +128,11 @@ export function useWebSocket(options: UseWebSocketOptions) {
     return () => {
       shouldReconnectRef.current = false;
       clearReconnectTimer();
+      for (const [requestId, pendingReply] of pendingRepliesRef.current) {
+        clearTimeout(pendingReply.timer);
+        pendingReply.resolve({ accepted: false, code: "socket_unavailable" });
+        pendingRepliesRef.current.delete(requestId);
+      }
       wsRef.current?.close();
       wsRef.current = null;
     };
@@ -106,19 +144,41 @@ export function useWebSocket(options: UseWebSocketOptions) {
       feedback: string,
       attachments?: FileAttachment[],
       displayFeedback?: string,
-    ): boolean => {
+    ): Promise<SendReplyResult> => {
       const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return false;
-      ws.send(
-        JSON.stringify({
-          type: "reply",
-          chatSessionId,
-          feedback,
-          ...(displayFeedback !== undefined ? { displayFeedback } : {}),
-          ...(attachments && attachments.length > 0 ? { attachments } : {}),
-        }),
-      );
-      return true;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        return Promise.resolve({ accepted: false, code: "socket_unavailable" });
+      }
+
+      const clientRequestId =
+        globalThis.crypto?.randomUUID?.() ??
+        `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+      return new Promise<SendReplyResult>((resolve) => {
+        const timer = setTimeout(() => {
+          pendingRepliesRef.current.delete(clientRequestId);
+          resolve({ accepted: false, code: "timeout" });
+        }, REPLY_RESULT_TIMEOUT_MS);
+
+        pendingRepliesRef.current.set(clientRequestId, { resolve, timer });
+
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "reply",
+              chatSessionId,
+              feedback,
+              clientRequestId,
+              ...(displayFeedback !== undefined ? { displayFeedback } : {}),
+              ...(attachments && attachments.length > 0 ? { attachments } : {}),
+            }),
+          );
+        } catch {
+          clearTimeout(timer);
+          pendingRepliesRef.current.delete(clientRequestId);
+          resolve({ accepted: false, code: "socket_unavailable" });
+        }
+      });
     },
     [],
   );

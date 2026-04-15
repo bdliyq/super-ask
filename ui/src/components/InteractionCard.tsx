@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { FileAttachment, HistoryEntry } from "@shared/types";
 import { useI18n } from "../i18n";
+import { CopyButton } from "./CopyButton";
 
 const CANCELLED_FEEDBACK = "[Cancelled]";
 
@@ -12,6 +13,12 @@ const ALLOWED_IMAGE_MIMES = new Set([
   "image/gif",
   "image/webp",
 ]);
+
+const markdownComponents: Components = {
+  a({ node: _node, ...props }) {
+    return <a {...props} target="_blank" rel="noopener noreferrer" />;
+  },
+};
 
 function formatDateTime(ts: number): string {
   const d = new Date(ts);
@@ -133,7 +140,7 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
           </span>
           <span className={statusBadgeClass}>{statusLabel}</span>
           {isAcked && statusKind === "done" && (
-            <span className="entry-ack-badge" title={t.agentAcked ?? "Agent 已收到"}>
+            <span className="entry-ack-badge" title={t.agentAcked ?? "已送达至 Agent"}>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M1.5 8.5l3 3 4.5-6" />
                 <path d="M6.5 8.5l3 3 4.5-6" />
@@ -166,15 +173,20 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
             <div className="summary-card">
               <div className="summary-card__header">
                 <div className="summary-card__label">{t.summary}</div>
-                {onQuote && (
-                  <QuoteButton
-                    title={t.quoteSummary}
-                    onClick={() => onQuote({ type: "summary", text: agentEntry.summary!, index })}
-                  />
-                )}
+                <div className="entry-section__actions">
+                  <CopyButton className="entry-section__copy-btn" text={agentEntry.summary} />
+                  {onQuote && (
+                    <QuoteButton
+                      title={t.quoteSummary}
+                      onClick={() => onQuote({ type: "summary", text: agentEntry.summary!, index })}
+                    />
+                  )}
+                </div>
               </div>
               <div className="summary-card__text markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{agentEntry.summary}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {agentEntry.summary}
+                </ReactMarkdown>
               </div>
             </div>
           ) : null}
@@ -182,15 +194,20 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
             <div className="question-card">
               <div className="question-card__header">
                 <div className="question-label">{t.question}</div>
-                {onQuote && (
-                  <QuoteButton
-                    title={t.quoteQuestion}
-                    onClick={() => onQuote({ type: "question", text: agentEntry.question!, index })}
-                  />
-                )}
+                <div className="entry-section__actions">
+                  <CopyButton className="entry-section__copy-btn" text={agentEntry.question} />
+                  {onQuote && (
+                    <QuoteButton
+                      title={t.quoteQuestion}
+                      onClick={() => onQuote({ type: "question", text: agentEntry.question!, index })}
+                    />
+                  )}
+                </div>
               </div>
               <div className="question-text markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{agentEntry.question}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {agentEntry.question}
+                </ReactMarkdown>
               </div>
             </div>
           ) : null}
@@ -198,16 +215,21 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
             <div className="feedback-record">
               <div className="feedback-record__header">
                 <div className="feedback-record-label">{t.yourFeedback}</div>
-                {onQuote && feedbackMd && feedbackMd !== CANCELLED_FEEDBACK && (
-                  <QuoteButton
-                    title={t.quoteFeedback}
-                    onClick={() => onQuote({ type: "feedback", text: feedbackMd, index })}
-                  />
-                )}
+                {feedbackMd ? (
+                  <div className="entry-section__actions">
+                    <CopyButton className="entry-section__copy-btn" text={feedbackMd} />
+                    {onQuote && feedbackMd !== CANCELLED_FEEDBACK && (
+                      <QuoteButton
+                        title={t.quoteFeedback}
+                        onClick={() => onQuote({ type: "feedback", text: feedbackMd, index })}
+                      />
+                    )}
+                  </div>
+                ) : null}
               </div>
               {feedbackMd ? (
                 <div className="feedback-record-text markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                     {(userEntry.feedback ?? "").replace(/\n/g, "  \n")}
                   </ReactMarkdown>
                 </div>

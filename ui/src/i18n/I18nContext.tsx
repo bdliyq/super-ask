@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { translations, type Locale, type Translations } from "./translations";
 
-const LOCALE_STORAGE_KEY = "super-ask-locale";
+const LOCALE_STORAGE_KEY = "super-ask-locale-v2";
 
 interface I18nContextValue {
   locale: Locale;
@@ -9,16 +9,20 @@ interface I18nContextValue {
   setLocale: (l: Locale) => void;
 }
 
+export function resolveInitialLocale(stored: string | null): Locale {
+  return stored === "zh" ? "zh" : "en";
+}
+
 const I18nContext = createContext<I18nContextValue>({
-  locale: "zh",
-  t: translations.zh,
+  locale: "en",
+  t: translations.en,
   setLocale: () => {},
 });
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(() => {
     const stored = localStorage.getItem(LOCALE_STORAGE_KEY) as Locale | null;
-    return stored === "en" ? "en" : "zh";
+    return resolveInitialLocale(stored);
   });
 
   useEffect(() => {

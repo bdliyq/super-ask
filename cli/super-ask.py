@@ -123,36 +123,6 @@ def _send_request(
     return 0, json.dumps(obj, ensure_ascii=False)
 
 
-def _poll_request(url: str, auth_token: str | None = None) -> tuple[int, str]:
-    """发送 GET 轮询请求。"""
-    req = urllib.request.Request(url, method="GET")
-    if auth_token:
-        req.add_header("Authorization", f"Bearer {auth_token}")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            raw = resp.read()
-    except urllib.error.HTTPError as e:
-        raw = e.read()
-        if e.code == 404:
-            try:
-                obj = json.loads(raw.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                obj = None
-            if isinstance(obj, dict) and obj.get("status") == "not_found":
-                return 0, json.dumps(obj, ensure_ascii=False)
-        msg = _http_error_message(e.code, raw)
-        return 1, f"错误: Server 返回 HTTP {e.code}: {msg}" if msg else f"错误: HTTP {e.code}"
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return 2, "错误: 无法连接 Server"
-
-    try:
-        obj = json.loads(raw.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return 1, "错误: Server 返回无效响应"
-
-    return 0, json.dumps(obj, ensure_ascii=False)
-
-
 def _send_ack(port: int, chat_session_id: str, auth_token: str | None = None) -> None:
     """向 Server 发送确认回执（best-effort，失败不影响主流程）"""
     url = f"http://{HOST}:{port}/api/ack"
@@ -230,110 +200,35 @@ def main() -> int:
         default=3,
         help="网络错误时的重试次数（默认 3）",
     )
-    parser.add_argument(
-        "--no-wait",
-        dest="no_wait",
-        action="store_true",
-        default=False,
-        help="提交请求后立即返回，不等待用户回复（配合 --poll 使用）",
-    )
-    parser.add_argument(
-        "--poll",
-        action="store_true",
-        default=False,
-        help="轮询检查是否有回复（需配合 --session-id 使用）",
-    )
-    parser.add_argument(
-        "--poll-interval",
-        dest="poll_interval",
-        type=int,
-        default=5,
-        help="轮询间隔秒数（默认 5）",
-    )
-    parser.add_argument(
-        "--poll-timeout",
-        dest="poll_timeout",
-        type=int,
-        default=DEFAULT_TIMEOUT,
-        help=f"轮询总超时秒数（默认 {DEFAULT_TIMEOUT}，0 表示不超时）",
-    )
     args = parser.parse_args()
-
-    # poll 模式：轮询检查回复
-    if args.poll:
-        if not args.chat_session_id:
-            print("错误: --poll 模式需要 --session-id 参数", file=sys.stderr)
-            return 1
-        auth_token = _read_auth_token(args.port)
-        import time
-        poll_url = f"http://{HOST}:{args.port}/api/poll?chatSessionId={args.chat_session_id}"
-        deadline = None if args.poll_timeout <= 0 else time.time() + args.poll_timeout
-        while deadline is None or time.time() < deadline:
-            code, output = _poll_request(poll_url, auth_token)
-            if code == 2:
-                print("轮询连接失败，重试中...", file=sys.stderr)
-                time.sleep(args.poll_interval)
-                continue
-            if code != 0:
-                print(output, file=sys.stderr)
-                return 1
-            obj = json.loads(output)
-            status = obj.get("status")
-            if status == "replied":
-                cid = obj.get("chatSessionId")
-                if cid:
-                    _send_ack(args.port, cid, auth_token)
-                print(output)
-                return 0
-            if status == "pending":
-                time.sleep(args.poll_interval)
-                continue
-            if status == "not_found":
-                print(output)
-                return 3
-            print(f"错误: 意外的 poll 状态: {status}", file=sys.stderr)
-            return 1
-        print(
-            json.dumps(
-                {
-                    "chatSessionId": args.chat_session_id,
-                    "status": "timeout",
-                },
-                ensure_ascii=False,
-            )
-        )
-        return 4
 
     # 提交模式
     if not args.summary or not args.question:
-        print("错误: --summary 和 --question 是必填参数（除非使用 --poll）", file=sys.stderr)
+        print("错误: --summary 和 --question 是必填参数", file=sys.stderr)
         return 1
 
     auth_token = _read_auth_token(args.port)
     url = f"http://{HOST}:{args.port}/super-ask"
     payload = _build_payload(args)
 
-    if args.no_wait:
-        payload["noWait"] = True
-
     max_retries = max(0, args.retries)
 
     for attempt in range(max_retries + 1):
-        timeout = 30 if args.no_wait else DEFAULT_TIMEOUT
-        code, output = _send_request(url, payload, timeout=timeout, auth_token=auth_token)
+        code, output = _send_request(
+            url, payload, timeout=DEFAULT_TIMEOUT, auth_token=auth_token
+        )
         if code == 0:
-            if not args.no_wait:
-                vcode, vout = _validate_blocking_response(output)
-                if vcode != 0:
-                    print(vout, file=sys.stderr)
-                    return 1
-                try:
-                    resp_obj = json.loads(output)
-                    cid = resp_obj.get("chatSessionId")
-                    if cid:
-                        _send_ack(args.port, cid, auth_token)
-                except Exception:
-                    pass
+            vcode, vout = _validate_blocking_response(output)
+            if vcode != 0:
+                print(vout, file=sys.stderr)
+                return 1
+            try:
+                resp_obj = json.loads(output)
+                cid = resp_obj.get("chatSessionId")
+                if cid:
+                    _send_ack(args.port, cid, auth_token)
+            except Exception:
+                pass
             print(output)
             return 0
         if code != 2 or attempt >= max_retries:

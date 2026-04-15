@@ -20,6 +20,9 @@ export function getSourceBadgeProps(
   } else if (k === "codex") {
     mod = `${base}--codex`;
     label = "Codex";
+  } else if (k === "opencode") {
+    mod = `${base}--opencode`;
+    label = "OpenCode";
   } else if (k === "qwen") {
     mod = `${base}--qwen`;
     label = "Qwen";
@@ -52,6 +55,9 @@ export function RequestStatusBadge({ status }: { status?: SessionInfo["requestSt
   } else if (status === "replied") {
     className = `${base} ${base}--replied`;
     label = t.statusReplied;
+  } else if (status === "acked") {
+    className = `${base} ${base}--acked`;
+    label = t.statusAcked;
   } else {
     className = `${base} ${base}--cancelled`;
     label = t.statusCancelled;

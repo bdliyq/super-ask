@@ -16,7 +16,7 @@
 
 ## 概述
 
-Super Ask 是一个多轮人机交互中间件，适用于各种 AI 编程 Agent（Cursor、VS Code Copilot、Codex、Qwen CLI 等）。
+Super Ask 是一个多轮人机交互中间件，适用于各种 AI 编程 Agent（Cursor、VS Code Copilot、Codex、OpenCode、Qwen CLI 等）。
 
 Agent 在执行任务的过程中，可以随时调用 Super Ask 向用户汇报进展、提问、等待反馈，然后根据反馈继续工作——形成闭环。
 
@@ -26,7 +26,7 @@ Agent 在执行任务的过程中，可以随时调用 Super Ask 向用户汇报
 |---|---|
 | Agent 执行完才告知结果，方向跑偏难纠正 | Agent 可在任意节点暂停汇报，用户实时审阅 |
 | 多个 Agent 并行时无法统一管理 | Web UI 集中管理所有 Agent 的会话 |
-| 不同 IDE / Agent 工具碎片化 | 统一协议，一套规则适配 Cursor / Copilot / Codex / Qwen |
+| 不同 IDE / Agent 工具碎片化 | 统一协议，一套规则适配 Cursor / Copilot / Codex / OpenCode / Qwen |
 
 ## 架构
 
@@ -61,7 +61,7 @@ Agent 在执行任务的过程中，可以随时调用 Super Ask 向用户汇报
 
 ## 核心特性
 
-- **多平台支持**：Cursor、VS Code Copilot、Codex、Qwen CLI，一键部署规则
+- **多平台支持**：Cursor、VS Code Copilot、Codex、OpenCode、Qwen CLI，一键部署规则
 - **Web UI 仪表盘**：集中查看和管理所有 Agent 会话，WebSocket 实时消息推送
 - **阻塞式交互**：Agent 调用后暂停等待，用户回复后自动继续
 - **消息队列**：用户可预先编写回复，Agent 下次提问时自动发送
@@ -117,9 +117,12 @@ bash install.sh
 | **Cursor** | `.cursor/rules/super-ask.mdc` | 工作区 / 用户全局 |
 | **VS Code Copilot** | `.copilot/instructions/super-ask.instructions.md` | 工作区 / 用户全局 |
 | **Codex** | `AGENTS.md`（注入标记块） | 工作区 / 用户全局 |
+| **OpenCode** | `AGENTS.md` + `.opencode/tools/super-ask.ts`（用户级为 `~/.config/opencode/...`） | 工作区 / 用户全局 |
 | **Qwen CLI** | `super-ask-qwen.md` + `.qwen/settings.json` | 工作区 / 用户全局 |
 
 部署后，Agent 会在每次任务完成时自动调用 Super Ask 汇报并等待反馈。
+其中 OpenCode 会通过自定义工具直接调用 super-ask HTTP API，并自动读取本机 `~/.super-ask` 配置与 token。
+OpenCode 自定义工具模板基于官方 `@opencode-ai/plugin` 接口约定生成。
 
 ## 交互流程
 
@@ -166,13 +169,11 @@ python3 cli/super-ask.py \
 | `--question` | ✅ | 向用户提出的问题 |
 | `--title` | | Tab 标题 |
 | `--session-id` | | 多轮对话的会话 ID（首次不传，从响应中获取） |
-| `--source` | | 来源标识（cursor / vscode / codex） |
+| `--source` | | 来源标识（cursor / vscode / codex / opencode / qwen） |
 | `--workspace-root` | | 工作区绝对路径 |
 | `--options` | | 快捷回复选项（可多个） |
 | `--port` | | 服务端口（默认 19960） |
 | `--retries` | | 连接失败重试次数（默认 3） |
-| `--no-wait` | | 提交后立即返回，不阻塞 |
-| `--poll` | | 轮询检查回复（配合 --session-id） |
 
 ### 返回值
 
@@ -193,7 +194,7 @@ super-ask/
 │   ├── src/
 │   │   ├── index.ts        # 入口（start / stop / status + daemon）
 │   │   ├── server.ts       # HTTP 路由 + 静态文件服务
-│   │   ├── sessionManager.ts  # 会话管理、长轮询、持久化
+│   │   ├── sessionManager.ts  # 会话管理、阻塞请求、持久化
 │   │   ├── wsHub.ts        # WebSocket 广播中心
 │   │   ├── deployManager.ts   # 规则部署引擎
 │   │   ├── config.ts       # 配置加载 + Token 管理
@@ -214,6 +215,8 @@ super-ask/
 │   ├── super-ask-cursor.mdc # Cursor 版
 │   ├── super-ask-copilot.md # Copilot 版
 │   ├── super-ask-codex.md   # Codex 版
+│   ├── super-ask-opencode.md # OpenCode 规则
+│   ├── super-ask-opencode-tool.ts # OpenCode 自定义工具模板
 │   └── super-ask-qwen.md    # Qwen 版
 ├── vscode/                 # VS Code 扩展（可选）
 ├── scripts/                # launchd 安装 / 卸载、npm-link
@@ -276,7 +279,7 @@ super-ask/
 
 ## Overview
 
-Super Ask is a multi-round human-in-the-loop middleware for AI coding agents (Cursor, VS Code Copilot, Codex, Qwen CLI, etc.).
+Super Ask is a multi-round human-in-the-loop middleware for AI coding agents (Cursor, VS Code Copilot, Codex, OpenCode, Qwen CLI, etc.).
 
 During task execution, agents can call Super Ask at any point to report progress, ask questions, and wait for user feedback before continuing — forming a closed feedback loop.
 
@@ -286,7 +289,7 @@ During task execution, agents can call Super Ask at any point to report progress
 |---|---|
 | Agent runs to completion; hard to course-correct mid-task | Agent pauses at any checkpoint for real-time review |
 | No unified view when running multiple agents in parallel | Web UI provides a single dashboard for all agent sessions |
-| Fragmented tools across different IDEs and agents | One protocol, one set of rules for Cursor / Copilot / Codex / Qwen |
+| Fragmented tools across different IDEs and agents | One protocol, one set of rules for Cursor / Copilot / Codex / OpenCode / Qwen |
 
 ## Architecture
 
@@ -322,7 +325,7 @@ During task execution, agents can call Super Ask at any point to report progress
 
 ## Key Features
 
-- **Multi-platform**: Cursor, VS Code Copilot, Codex, Qwen CLI — one-click rule deployment
+- **Multi-platform**: Cursor, VS Code Copilot, Codex, OpenCode, Qwen CLI — one-click rule deployment
 - **Web UI Dashboard**: Centralized view for all agent sessions with real-time WebSocket updates
 - **Blocking Interaction**: Agent blocks until the user replies, then continues automatically
 - **Reply Queue**: Pre-compose replies that auto-send when the agent asks next
@@ -378,9 +381,12 @@ Open Web UI → Settings → Deploy panel, select platforms and scope for one-cl
 | **Cursor** | `.cursor/rules/super-ask.mdc` | Workspace / User-global |
 | **VS Code Copilot** | `.copilot/instructions/super-ask.instructions.md` | Workspace / User-global |
 | **Codex** | `AGENTS.md` (injected marked block) | Workspace / User-global |
+| **OpenCode** | `AGENTS.md` + `.opencode/tools/super-ask.ts` (user-global lives under `~/.config/opencode/...`) | Workspace / User-global |
 | **Qwen CLI** | `super-ask-qwen.md` + `.qwen/settings.json` | Workspace / User-global |
 
-After deployment, agents automatically call Super Ask CLI to report and wait for feedback at each task checkpoint.
+After deployment, agents automatically call Super Ask to report and wait for feedback at each task checkpoint.
+For OpenCode, deployment also installs a custom tool that talks to the super-ask HTTP API directly and auto-loads local `~/.super-ask` config and auth token.
+The OpenCode custom tool template is generated against the official `@opencode-ai/plugin` tool contract.
 
 ## Interaction Flow
 
@@ -427,13 +433,11 @@ python3 cli/super-ask.py \
 | `--question` | ✅ | Question for the user |
 | `--title` | | Tab title |
 | `--session-id` | | Session ID for multi-round conversations (omit on first call) |
-| `--source` | | Source identifier (cursor / vscode / codex) |
+| `--source` | | Source identifier (cursor / vscode / codex / opencode / qwen) |
 | `--workspace-root` | | Absolute path to the workspace |
 | `--options` | | Quick-reply options (multiple allowed) |
 | `--port` | | Server port (default 19960) |
 | `--retries` | | Connection failure retry count (default 3) |
-| `--no-wait` | | Return immediately after submission (use with --poll) |
-| `--poll` | | Poll for reply (use with --session-id) |
 
 ### Response
 
@@ -454,7 +458,7 @@ super-ask/
 │   ├── src/
 │   │   ├── index.ts        # Entry (start / stop / status + daemon)
 │   │   ├── server.ts       # HTTP routes + static file serving
-│   │   ├── sessionManager.ts  # Session management, long-polling, persistence
+│   │   ├── sessionManager.ts  # Session management, blocking requests, persistence
 │   │   ├── wsHub.ts        # WebSocket broadcast hub
 │   │   ├── deployManager.ts   # Rule deployment engine
 │   │   ├── config.ts       # Config loading + token management
@@ -475,6 +479,8 @@ super-ask/
 │   ├── super-ask-cursor.mdc # Cursor
 │   ├── super-ask-copilot.md # Copilot
 │   ├── super-ask-codex.md   # Codex
+│   ├── super-ask-opencode.md # OpenCode rules
+│   ├── super-ask-opencode-tool.ts # OpenCode custom tool template
 │   └── super-ask-qwen.md    # Qwen
 ├── vscode/                 # VS Code extension (optional)
 ├── scripts/                # launchd install/uninstall, npm-link

@@ -2,11 +2,18 @@ import { useCallback, useEffect, useState, type ChangeEvent } from "react";
 import { withAuthHeaders } from "../auth";
 import { useI18n } from "../i18n";
 import type { Locale } from "../i18n";
+import { CopyButton } from "./CopyButton";
 
 export interface PredefinedMsg {
   id: string;
   text: string;
   active: boolean;
+}
+
+interface PredefinedMessagesListProps {
+  messages: PredefinedMsg[];
+  onToggle: (id: string) => void;
+  onRemove: (id: string) => void;
 }
 
 const NOTIFICATION_KEY = "super-ask-notification-enabled";
@@ -51,6 +58,42 @@ export async function getActivePredefinedSuffix(): Promise<string> {
   const active = msgs.filter((m) => m.active && m.text.trim());
   if (active.length === 0) return "";
   return "\n" + active.map((m) => m.text.trim()).join("\n");
+}
+
+export function PredefinedMessagesList({
+  messages,
+  onToggle,
+  onRemove,
+}: PredefinedMessagesListProps) {
+  return (
+    <div className="system-settings__predefined-list">
+      {messages.map((msg) => (
+        <div key={msg.id} className="system-settings__predefined-item">
+          <label className="system-settings__predefined-check">
+            <input
+              type="checkbox"
+              checked={msg.active}
+              onChange={() => onToggle(msg.id)}
+            />
+          </label>
+          <span className={`system-settings__predefined-text ${msg.active ? "" : "system-settings__predefined-text--inactive"}`}>
+            {msg.text}
+          </span>
+          <CopyButton
+            text={msg.text}
+            className="system-settings__predefined-copy"
+          />
+          <button
+            type="button"
+            className="system-settings__predefined-remove"
+            onClick={() => onRemove(msg.id)}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function formatUptime(seconds: number, isZh: boolean): string {
@@ -279,39 +322,21 @@ export function SystemSettings() {
         {predefinedMsgs.length === 0 ? (
           <p className="system-settings__section-desc">{t.predefinedMsgEmpty}</p>
         ) : (
-          <div className="system-settings__predefined-list">
-            {predefinedMsgs.map((msg) => (
-              <div key={msg.id} className="system-settings__predefined-item">
-                <label className="system-settings__predefined-check">
-                  <input
-                    type="checkbox"
-                    checked={msg.active}
-                    onChange={() => {
-                      const next = predefinedMsgs.map((m) =>
-                        m.id === msg.id ? { ...m, active: !m.active } : m
-                      );
-                      setPredefinedMsgs(next);
-                      void savePredefinedMsgs(next);
-                    }}
-                  />
-                </label>
-                <span className={`system-settings__predefined-text ${msg.active ? "" : "system-settings__predefined-text--inactive"}`}>
-                  {msg.text}
-                </span>
-                <button
-                  type="button"
-                  className="system-settings__predefined-remove"
-                  onClick={() => {
-                    const next = predefinedMsgs.filter((m) => m.id !== msg.id);
-                    setPredefinedMsgs(next);
-                    void savePredefinedMsgs(next);
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
+          <PredefinedMessagesList
+            messages={predefinedMsgs}
+            onToggle={(id) => {
+              const next = predefinedMsgs.map((msg) =>
+                msg.id === id ? { ...msg, active: !msg.active } : msg
+              );
+              setPredefinedMsgs(next);
+              void savePredefinedMsgs(next);
+            }}
+            onRemove={(id) => {
+              const next = predefinedMsgs.filter((msg) => msg.id !== id);
+              setPredefinedMsgs(next);
+              void savePredefinedMsgs(next);
+            }}
+          />
         )}
         <div className="system-settings__predefined-add">
           <input

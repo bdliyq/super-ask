@@ -19,6 +19,9 @@
   --radius: 10px;
   --tab-width: 400px;
   --status-height: 28px;
+  --panel-banner-padding-x: 16px;
+  --panel-banner-padding-y: 8px;
+  --panel-banner-min-height: 41px;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
   /* 亮色：代码块、状态栏、悬停强调等 */
@@ -284,7 +287,25 @@ body {
   border-color: var(--accent);
 }
 
-/* session-tabs__header 已移除，由 app__header 统一提供 */
+.session-tabs__banner,
+.chat-view__banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--panel-banner-min-height);
+  padding: var(--panel-banner-padding-y) var(--panel-banner-padding-x);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  gap: 12px;
+}
+
+.session-tabs__banner-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
 
 .session-tabs__list {
   flex: 1;
@@ -498,6 +519,19 @@ body {
   box-shadow: 0 0 0 1px #fff;
 }
 
+.session-tabs__source--opencode {
+  background: #00695c;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 0 0 1px #00695c;
+}
+
+.session-tabs__item--active .session-tabs__source--opencode {
+  background: #fff;
+  color: #00695c;
+  box-shadow: 0 0 0 1px #fff;
+}
+
 .session-tabs__source--qwen {
   background: #ff6f00;
   color: #fff;
@@ -561,6 +595,19 @@ body {
   box-shadow: 0 0 0 1px #fff;
 }
 
+.session-tabs__request-status--acked {
+  background: #00695c;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 0 0 1px #00695c;
+}
+
+.session-tabs__item--active .session-tabs__request-status--acked {
+  background: #fff;
+  color: #00695c;
+  box-shadow: 0 0 0 1px #fff;
+}
+
 .session-tabs__request-status--cancelled {
   background: #c62828;
   color: #fff;
@@ -616,20 +663,6 @@ body {
   margin: 0;
   max-width: 360px;
   text-align: center;
-}
-
-/* 聊天区顶部会话信息横幅 */
-.chat-view__banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-  font-size: 13px;
-  color: var(--text-muted);
-  gap: 12px;
 }
 
 .chat-view__banner-left {
@@ -857,6 +890,12 @@ body {
   background: rgba(0, 122, 204, 0.08);
 }
 
+.chat-view__tag-add-glyph {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .chat-view__tag-input {
   font: inherit;
   font-size: 11px;
@@ -893,8 +932,8 @@ body {
 }
 
 .session-tabs__item--active .session-tabs__tag {
-  background: rgba(255, 255, 255, 0.3);
-  color: #fff;
+  background: #fff;
+  color: var(--accent);
 }
 
 .chat-view__banner-title {
@@ -1074,14 +1113,14 @@ body {
 .entry-ack-badge {
   display: inline-flex;
   align-items: center;
-  color: #2e7d32;
+  color: #fff;
   margin-left: 2px;
   vertical-align: middle;
   flex-shrink: 0;
 }
 
 [data-theme="dark"] .entry-ack-badge {
-  color: #66bb6a;
+  color: #fff;
 }
 
 .entry-header__quote-btn {
@@ -1172,6 +1211,12 @@ body {
   justify-content: space-between;
   margin-bottom: 4px;
 }
+.entry-section__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
 .summary-card__label {
   font-size: 11px;
   text-transform: uppercase;
@@ -1179,7 +1224,8 @@ body {
   color: var(--text-muted);
   font-weight: 600;
 }
-.entry-section__quote-btn {
+.entry-section__quote-btn,
+.entry-section__copy-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1194,7 +1240,8 @@ body {
   padding: 0;
   transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
 }
-.entry-section__quote-btn:hover {
+.entry-section__quote-btn:hover,
+.entry-section__copy-btn:hover {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
@@ -1919,17 +1966,9 @@ body {
     grid-column: 1;
     grid-row: 1;
     max-height: 160px;
-    flex-direction: row;
+    flex-direction: column;
     border-right: none;
     border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .session-tabs__header {
-    writing-mode: vertical-rl;
-    transform: rotate(180deg);
-    border-bottom: none;
-    border-right: 1px solid var(--border-subtle);
-    padding: 8px 6px;
   }
 
   .session-tabs__list {
@@ -2014,11 +2053,11 @@ body {
 
 .deploy-panel__body {
   flex: 1;
-  overflow-y: auto;
-  padding: 20px;
+  overflow: visible;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
 }
 
 .deploy-panel__label {
@@ -2147,7 +2186,7 @@ body {
 }
 
 .deploy-panel__steps {
-  margin-top: 12px;
+  margin-top: 0;
   padding: 14px 16px;
   border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
@@ -2288,7 +2327,7 @@ body {
 
 /* 当前各平台部署探测结果 */
 .deploy-panel__status {
-  margin-top: 12px;
+  margin-top: 0;
   padding: 12px;
   border-radius: 8px;
   border: 1px solid var(--border-subtle);
@@ -2439,6 +2478,20 @@ body {
   padding: 20px;
 }
 
+.about-panel__markdown {
+  width: 100%;
+}
+
+.about-panel__markdown.markdown-body h1,
+.about-panel__markdown.markdown-body h2 {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.about-panel__loading {
+  margin: 0;
+}
+
 /* === 系统设置 === */
 .system-settings__section {
   margin-bottom: 24px;
@@ -2512,6 +2565,29 @@ body {
 .system-settings__predefined-text--inactive {
   opacity: 0.5;
   text-decoration: line-through;
+}
+
+.system-settings__predefined-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.system-settings__predefined-copy:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  transform: scale(1.06);
 }
 
 .system-settings__predefined-remove {

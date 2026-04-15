@@ -94,7 +94,10 @@ export function SessionTabs({ sessions, activeSessionId, onSelect, onDelete, onT
   const hoveredSession = hoveredId ? sessions.find((s) => s.chatSessionId === hoveredId) : null;
 
   return (
-    <aside className="session-tabs" aria-label={t.sessions}>
+    <aside className="session-tabs" aria-label={t.sessionList}>
+      <div className="session-tabs__banner">
+        <span className="session-tabs__banner-title">{t.sessionList}</span>
+      </div>
       <div className="session-tabs__list" role="tablist" aria-orientation="vertical">
         {sessions.length === 0 ? (
           <div className="session-tabs__empty">{t.noSessions}</div>
