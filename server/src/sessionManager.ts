@@ -86,7 +86,11 @@ export class SessionManager {
           if (!raw) continue;
           const s = JSON.parse(raw) as SessionInfo;
           if (!s.chatSessionId) continue;
-          this.sessions.set(s.chatSessionId, { ...s, hasPending: false });
+          const restored = { ...s, hasPending: false };
+          if (restored.requestStatus === "pending") {
+            restored.requestStatus = "cancelled";
+          }
+          this.sessions.set(s.chatSessionId, restored);
           loaded++;
         } catch {
           console.warn(`[sessionManager] 跳过损坏的会话文件: ${f}`);
@@ -97,7 +101,16 @@ export class SessionManager {
       if (err.code !== "ENOENT") throw e;
     }
 
-    if (loaded > 0) return;
+    if (loaded > 0) {
+      const fixups = [...this.sessions.values()].filter(
+        (s) => s.requestStatus === "cancelled" && !s.hasPending
+      );
+      if (fixups.length > 0) {
+        await Promise.all(fixups.map((s) => this.persistSession(s.chatSessionId)));
+        console.log(`[sessionManager] 已修正 ${fixups.length} 个孤立 pending 会话`);
+      }
+      return;
+    }
 
     try {
       const raw = (await readFile(LEGACY_SESSIONS_PATH, "utf-8")).trim();
@@ -105,7 +118,11 @@ export class SessionManager {
       const data = JSON.parse(raw) as { sessions?: SessionInfo[] };
       const list = Array.isArray(data.sessions) ? data.sessions : [];
       for (const s of list) {
-        this.sessions.set(s.chatSessionId, { ...s, hasPending: false });
+        const restored = { ...s, hasPending: false };
+        if (restored.requestStatus === "pending") {
+          restored.requestStatus = "cancelled";
+        }
+        this.sessions.set(s.chatSessionId, restored);
       }
       if (list.length > 0) {
         for (const s of list) {
@@ -724,7 +741,7 @@ export class SessionManager {
     this.pending.clear();
     for (const s of this.sessions.values()) {
       s.hasPending = false;
-      if (pendingIds.has(s.chatSessionId)) {
+      if (pendingIds.has(s.chatSessionId) || s.requestStatus === "pending") {
         s.requestStatus = "cancelled";
       }
     }
