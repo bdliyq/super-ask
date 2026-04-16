@@ -381,6 +381,7 @@ export default tool({
     const workspaceRoot = getWorkspaceRoot(context, args.workspaceRoot);
     let stableChatSessionId =
       typeof args.chatSessionId === "string" && args.chatSessionId.trim() ? args.chatSessionId.trim() : undefined;
+    const stableRequestId = randomUUID();
 
     const buildPayload = (): Record<string, unknown> => {
       if (!stableChatSessionId) {
@@ -394,6 +395,7 @@ export default tool({
         options: normalizeOptions(args.options),
         workspaceRoot,
         source: "opencode",
+        requestId: stableRequestId,
       };
       return Object.fromEntries(
         Object.entries(payload).filter(([, value]) => value !== undefined && value !== ""),

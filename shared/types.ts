@@ -10,6 +10,8 @@ export interface AskRequest {
   source?: string;
   /** Agent 所在工作区根路径 */
   workspaceRoot?: string;
+  /** 幂等键：同一逻辑请求的所有重试共享同一 requestId，服务端据此去重 */
+  requestId?: string;
 }
 
 /** 用户消息中的附件（上传后的元数据，供展示与 Agent 回调） */
@@ -162,6 +164,8 @@ export interface HistoryEntry {
   options?: string[];
   timestamp: number;
   attachments?: FileAttachment[];
+  /** 幂等键：CLI 重试时服务端据此去重，避免同一请求产生多条 agent entry */
+  requestId?: string;
 }
 
 // === Config ===

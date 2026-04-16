@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import sys
+import uuid
 from datetime import datetime
 from enum import Enum
 import urllib.error
@@ -380,6 +381,7 @@ def main() -> int:
     auth_token = _read_auth_token(args.port)
     url = f"http://{HOST}:{args.port}/super-ask"
     payload = _build_payload(args)
+    payload["requestId"] = str(uuid.uuid4())
 
     max_retries = args.retries
     retry_count = 0

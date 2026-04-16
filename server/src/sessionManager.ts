@@ -391,6 +391,12 @@ export class SessionManager {
     return [...this.sessions.values()].map((s) => ({ ...s }));
   }
 
+  /** 供终端等子系统按 chatSessionId 查询会话 */
+  getSession(chatSessionId: string): SessionInfo | undefined {
+    const s = this.sessions.get(chatSessionId);
+    return s ? { ...s } : undefined;
+  }
+
   /**
    * 供 WebSocket sync：返回当前会话 pin 顺序
    */
@@ -485,16 +491,30 @@ export class SessionManager {
         session.workspaceRoot = trimmed || undefined;
       }
 
-      const agentEntry: HistoryEntry = {
-        role: "agent",
-        summary: req.summary,
-        question: req.question,
-        options: req.options,
-        timestamp: Date.now(),
-      };
-      session.history.push(agentEntry);
+      let deduplicated = false;
+      if (req.requestId) {
+        for (let i = session.history.length - 1; i >= 0; i--) {
+          const entry = session.history[i];
+          if (entry.role === "agent" && entry.requestId === req.requestId) {
+            deduplicated = true;
+            break;
+          }
+          if (entry.role === "user") break;
+        }
+      }
+
+      if (!deduplicated) {
+        const agentEntry: HistoryEntry = {
+          role: "agent",
+          summary: req.summary,
+          question: req.question,
+          options: req.options,
+          timestamp: Date.now(),
+          ...(req.requestId ? { requestId: req.requestId } : {}),
+        };
+        session.history.push(agentEntry);
+      }
       session.hasPending = true;
-      // 与 WebSocket session_update 一致，供 UI 展示当前长连接状态
       session.requestStatus = "pending";
       session.title = req.title?.trim() || session.title;
 
@@ -580,18 +600,20 @@ export class SessionManager {
       }, LONG_POLL_HEARTBEAT_MS);
       heartbeatTimer.unref?.();
 
-      const wsMsg: WsNewRequest = {
-        type: "new_request",
-        chatSessionId,
-        title: session.title,
-        summary: req.summary,
-        question: req.question,
-        options: req.options,
-        isNewSession,
-        source: session.source,
-        workspaceRoot: session.workspaceRoot,
-      };
-      this.wsBroadcast(wsMsg);
+      if (!deduplicated) {
+        const wsMsg: WsNewRequest = {
+          type: "new_request",
+          chatSessionId,
+          title: session.title,
+          summary: req.summary,
+          question: req.question,
+          options: req.options,
+          isNewSession,
+          source: session.source,
+          workspaceRoot: session.workspaceRoot,
+        };
+        this.wsBroadcast(wsMsg);
+      }
 
       this.wsBroadcast({
         type: "session_update",
