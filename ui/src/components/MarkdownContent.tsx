@@ -36,10 +36,27 @@ function extractMermaidSource(children: ReactNode): string | null {
   return nodeToText(first.props.children).replace(/\n$/, "");
 }
 
+const URL_RE = /^https?:\/\/\S+$/;
+
 function createMarkdownComponents(linkRel: string): Components {
   return {
     a({ node: _node, ...props }) {
       return <a {...props} target="_blank" rel={linkRel} />;
+    },
+    code({ children, className, node: _node, ...props }) {
+      if (!className) {
+        const text = nodeToText(children).trim();
+        if (URL_RE.test(text)) {
+          return (
+            <code {...props}>
+              <a href={text} target="_blank" rel={linkRel}>
+                {children}
+              </a>
+            </code>
+          );
+        }
+      }
+      return <code className={className} {...props}>{children}</code>;
     },
     pre({ children, ...props }) {
       const source = extractMermaidSource(children);
