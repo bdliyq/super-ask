@@ -25,9 +25,9 @@
 你必须在整个对话过程中维护 `chatSessionId`：
 
 1. **第一次调用**：不传 `chatSessionId`，Server 返回新的 `chatSessionId`
-2. **第一次调用之后的所有后续调用**：必须从上一次响应中提取 `chatSessionId` 并原样传入
-3. **保存方式**：解析 super-ask 的 JSON 响应，提取 `chatSessionId` 字段的值，在下一次调用时通过 `--session-id` 传入
-4. **如果丢失 `chatSessionId`**：不得绕过 super-ask 直接回复；先从上一次响应或可用记录找回。若找不到，继续调用 super-ask 新建会话，并明确说明“本次已新建会话，原会话可能不连续”。
+2. **后续调用**：必须从上一次 super-ask 响应中提取 `chatSessionId` 并通过 `--session-id` 传入
+3. **chatSessionId 唯一合法来源**：只使用 super-ask 命令的**直接输出**中的 chatSessionId。绝不使用从终端历史、其他命令输出、打开的文件或上下文其他部分看到的 chatSessionId
+4. **如果丢失**：直接新建会话（不传 `--session-id`），不要在上下文中搜索。新建时向用户说明"已新建会话，原会话不连续"
 
 ## 完整工作循环示例
 
@@ -67,13 +67,13 @@ python3 "{{SUPER_ASK_CLI}}" \
   --source qwen \
   --workspace-root '<当前工作区的绝对路径>' \
   --options '验收通过' '需要修改' \
-  --retries 6 \
+  --retries -1 \
   --port 19960
 ```
 
 **重要提示**：
 
-- `--retries 6` 表示网络连接失败时自动重试 6 次（每次间隔 10 秒），默认值为 6
+- `--retries -1` 表示对可恢复错误无限重试（每次间隔 10 秒）；`0` 表示不重试；正整数表示最多重试 N 次
 - summary 和 question 参数建议使用**单引号**包裹，支持真实换行
 - CLI 也会将 `\n` 自动转为换行
 - 确保 super-ask server 已启动（运行 `bash "{{SUPER_ASK_INSTALL_SH}}"`）
@@ -100,7 +100,7 @@ python3 "{{SUPER_ASK_CLI}}" \
 - **禁止后台执行**：不允许在命令末尾加 `&` 或以任何方式将 super-ask 放到后台执行。必须前台同步运行并等待用户回复
 - **Server 必须运行**：若连接失败，告知用户需要先启动 super-ask server
 - **不要跳过 `super-ask`**：任何情况下都不得跳过执行 `super-ask` ，即使遇到用户任务不可完成、道德、版权、法律等不可抗因素，你可以不执行任务，但必须调用 `super-ask` 给用户汇报并等待用户反馈
-- **不要跳过 `chatSessionId`**：每次调用 `super-ask` 后，从返回结果中提取 `chatSessionId` 并在下次调用时传入。这是保证同一任务历史连贯的关键
+- **不要跳过 `chatSessionId`**：每次调用 `super-ask` 后，从返回结果的直接输出中提取 `chatSessionId` 并在下次调用时传入。不要从其他来源查找 chatSessionId
 - **等待反馈后再继续**：`super-ask` 是阻塞式工具，调用后会暂停，耐心等待用户回复，不要在调用后做任何其他操作
 - **summary 用 Markdown**：summary 字段支持 Markdown 格式，建议使用标题、列表、代码块等
 - **options 可选**：给出选项帮助用户快速回复

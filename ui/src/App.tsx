@@ -104,10 +104,12 @@ export default function App() {
 
   const {
     sortedSessions,
+    pinnedSessionIds,
     activeSessionId,
     activeSession,
     sessionsRef,
     setActiveSession,
+    togglePinnedSession,
     handleServerMessage,
     activeCount,
     pendingCount,
@@ -281,8 +283,10 @@ export default function App() {
         <>
           <SessionTabs
             sessions={sortedSessions}
+            pinnedSessionIds={pinnedSessionIds}
             activeSessionId={activeSessionId}
             onSelect={handleSessionSelect}
+            onTogglePin={togglePinnedSession}
             onDelete={handleDeleteSession}
             onTogglePanel={togglePanel}
           />

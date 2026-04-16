@@ -255,7 +255,7 @@ body {
   grid-row: 2;
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
+  background: var(--bg-app);
   border-right: 1px solid var(--border-subtle);
   min-height: 0;
   position: relative;
@@ -287,6 +287,12 @@ body {
   border-color: var(--accent);
 }
 
+.chat-view__banner {
+  height: var(--panel-banner-min-height);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
 .session-tabs__banner,
 .chat-view__banner {
   display: flex;
@@ -313,7 +319,82 @@ body {
   padding: 8px;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+}
+
+.session-tabs__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-tabs__group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-tabs__group-toggle:hover {
+  color: var(--text-primary);
+}
+
+.session-tabs__group-toggle--active {
+  color: var(--text-primary);
+}
+
+.session-tabs__group-caret {
+  font-size: 10px;
+  transition: transform 0.12s ease;
+}
+
+.session-tabs__group-caret--collapsed {
+  transform: rotate(-90deg);
+}
+
+.session-tabs__group-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-tabs__group-count {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.session-tabs__group-list {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
+}
+
+.session-tabs__show-more {
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-tabs__show-more:hover {
+  color: var(--text-primary);
+}
+
+.session-tabs__show-more--active {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .session-tabs__empty {
@@ -343,7 +424,7 @@ body {
 .session-tabs__tooltip {
   position: fixed;
   z-index: 9999;
-  background: var(--bg-elevated);
+  background: var(--bg-app);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
@@ -443,8 +524,12 @@ body {
   justify-content: center;
   width: 20px;
   height: 20px;
+  padding: 0;
+  border: none;
   border-radius: 4px;
+  background: transparent;
   font-size: 11px;
+  font: inherit;
   color: var(--text-muted);
   cursor: pointer;
   flex-shrink: 0;
@@ -458,6 +543,57 @@ body {
 .session-tabs__delete:hover {
   background: rgba(244, 71, 71, 0.15);
   color: #e53935;
+}
+
+.session-tabs__item--active .session-tabs__delete {
+  display: inline-flex;
+  color: #fff;
+}
+
+.session-tabs__item--active .session-tabs__delete:hover {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.session-tabs__pin {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.session-tabs__item:hover .session-tabs__pin,
+.session-tabs__item--pinned .session-tabs__pin {
+  display: inline-flex;
+}
+
+.session-tabs__pin:hover {
+  background: rgba(0, 122, 204, 0.14);
+  color: var(--accent);
+}
+
+.session-tabs__pin--active {
+  color: var(--accent);
+}
+
+.session-tabs__item--active .session-tabs__pin {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.session-tabs__item--active .session-tabs__pin:hover,
+.session-tabs__item--active .session-tabs__pin--active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
 }
 
 .session-tabs__item-badges {
@@ -631,6 +767,11 @@ body {
   box-shadow: 0 0 8px var(--accent);
 }
 
+.session-tabs__item--active .session-tabs__dot {
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 0 8px rgba(255, 255, 255, 0.65);
+}
+
 @keyframes pulse-dot {
   0%,
   100% {
@@ -671,6 +812,8 @@ body {
   gap: 10px;
   min-width: 0;
   flex: 1;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .chat-view__banner-right {
@@ -936,14 +1079,22 @@ body {
   color: var(--accent);
 }
 
+.chat-view__banner-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
 .chat-view__banner-title {
   font-weight: 600;
   color: var(--text-primary);
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 200px;
-  flex-shrink: 0;
 }
 
 .chat-view__banner-workspace {
@@ -1460,6 +1611,76 @@ body {
   padding: 0;
   background: none;
   font-size: 0.88em;
+}
+
+.markdown-body .markdown-mermaid {
+  margin: 0.5em 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--pre-bg);
+  border: 1px solid var(--pre-border);
+  overflow-x: auto;
+}
+
+.markdown-body .markdown-mermaid__diagram {
+  min-width: max-content;
+}
+
+.markdown-body .markdown-mermaid__diagram svg {
+  display: block;
+  height: auto;
+  max-width: none;
+}
+
+.markdown-body .markdown-mermaid__fallback {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  overflow: visible;
+}
+
+.markdown-body .markdown-mermaid__fallback code {
+  display: block;
+  white-space: pre;
+  padding: 0;
+  background: none;
+  font-size: 0.88em;
+}
+
+.markdown-body .markdown-mermaid__error {
+  color: var(--text-primary);
+}
+
+.markdown-body .markdown-mermaid__error-label {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b54708;
+}
+
+.markdown-body .markdown-mermaid__error-message {
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+[data-theme="dark"] .markdown-body .markdown-mermaid__error-label {
+  color: #f0a44b;
+}
+
+.about-panel__error-detail {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--pre-bg);
+  border: 1px solid var(--pre-border);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .markdown-body ul,
@@ -1980,6 +2201,15 @@ body {
     align-items: stretch;
   }
 
+  .session-tabs__group {
+    flex: 0 0 auto;
+    min-width: 180px;
+  }
+
+  .session-tabs__group-list {
+    min-width: 180px;
+  }
+
   .session-tabs__item {
     flex: 0 0 auto;
     max-width: 160px;
@@ -2298,7 +2528,7 @@ body {
   color: var(--text-muted);
   letter-spacing: 0.04em;
   padding: 4px 0;
-  border-top: 1px solid var(--border-subtle);
+  border-top: none;
   margin-top: 4px;
 }
 

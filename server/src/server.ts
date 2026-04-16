@@ -238,6 +238,11 @@ export function startSuperAsk(
     void handleHttp(req, res);
   });
 
+  // 禁用 Node.js 18+ 默认的 5 分钟请求/头部超时，
+  // 否则 /super-ask 长连接会被服务端主动断开。
+  httpServer.requestTimeout = 0;
+  httpServer.headersTimeout = 0;
+
   wsHub = new WsHub(sessionManager, httpServer, authToken);
 
   /** 校验 Bearer 或 X-Super-Ask-Token，未通过则写 401 并返回 false */
@@ -571,6 +576,52 @@ export function startSuperAsk(
       res.statusCode = ok ? 200 : 404;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.end(JSON.stringify({ success: ok }));
+      return;
+    }
+
+    // POST /api/pinned-sessions — 更新会话列表 pin 顺序
+    if (method === "POST" && pathname === "/api/pinned-sessions") {
+      if (!requireAuth(req, res)) return;
+      let parsed: unknown;
+      try { parsed = await readJsonBody(req, 8192); } catch {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: "无效请求体" }));
+        return;
+      }
+      const b = parsed as Record<string, unknown>;
+      const chatSessionId = typeof b.chatSessionId === "string" ? b.chatSessionId : "";
+      const pinned = typeof b.pinned === "boolean" ? b.pinned : undefined;
+      const pinnedSessionIds = b.pinnedSessionIds;
+      if (chatSessionId && pinned !== undefined) {
+        const ok = sessionManager.setSessionPinned(chatSessionId, pinned);
+        res.statusCode = ok ? 200 : 404;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(
+          JSON.stringify({
+            success: ok,
+            pinnedSessionIds: sessionManager.listPinnedSessionIdsForSync(),
+          })
+        );
+        return;
+      }
+      if (
+        !Array.isArray(pinnedSessionIds) ||
+        pinnedSessionIds.some((item) => typeof item !== "string")
+      ) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "缺少 pinnedSessionIds 或 chatSessionId/pinned" }));
+        return;
+      }
+      sessionManager.setPinnedSessionOrder(pinnedSessionIds);
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          success: true,
+          pinnedSessionIds: sessionManager.listPinnedSessionIdsForSync(),
+        })
+      );
       return;
     }
 

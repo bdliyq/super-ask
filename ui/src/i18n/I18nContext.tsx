@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { translations, type Locale, type Translations } from "./translations";
 
 const LOCALE_STORAGE_KEY = "super-ask-locale-v2";

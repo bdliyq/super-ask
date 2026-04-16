@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
 import type { FileAttachment, HistoryEntry } from "@shared/types";
 import { useI18n } from "../i18n";
 import { CopyButton } from "./CopyButton";
+import { MarkdownContent } from "./MarkdownContent";
 
 const CANCELLED_FEEDBACK = "[Cancelled]";
 
@@ -13,12 +12,6 @@ const ALLOWED_IMAGE_MIMES = new Set([
   "image/gif",
   "image/webp",
 ]);
-
-const markdownComponents: Components = {
-  a({ node: _node, ...props }) {
-    return <a {...props} target="_blank" rel="noopener noreferrer" />;
-  },
-};
 
 function formatDateTime(ts: number): string {
   const d = new Date(ts);
@@ -39,6 +32,32 @@ function formatFileSize(n: number): string {
 
 function isInlineImageMime(mime: string): boolean {
   return ALLOWED_IMAGE_MIMES.has(mime.trim().toLowerCase());
+}
+
+function formatFeedbackMarkdown(source: string): string {
+  const lines = source.replace(/\r\n?/g, "\n").split("\n");
+  let inFence = false;
+
+  return lines
+    .map((line, index) => {
+      const isFence = /^\s*(```|~~~)/.test(line);
+      if (isFence) {
+        inFence = !inFence;
+        return line;
+      }
+
+      if (inFence || line.trim() === "" || index === lines.length - 1) {
+        return line;
+      }
+
+      const nextLine = lines[index + 1];
+      if (nextLine.trim() === "") {
+        return line;
+      }
+
+      return `${line}  `;
+    })
+    .join("\n");
 }
 
 export type QuoteType = "summary" | "question" | "feedback" | "all";
@@ -184,9 +203,7 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
                 </div>
               </div>
               <div className="summary-card__text markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                  {agentEntry.summary}
-                </ReactMarkdown>
+                <MarkdownContent source={agentEntry.summary} />
               </div>
             </div>
           ) : null}
@@ -205,9 +222,7 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
                 </div>
               </div>
               <div className="question-text markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                  {agentEntry.question}
-                </ReactMarkdown>
+                <MarkdownContent source={agentEntry.question} />
               </div>
             </div>
           ) : null}
@@ -229,9 +244,7 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
               </div>
               {feedbackMd ? (
                 <div className="feedback-record-text markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                    {(userEntry.feedback ?? "").replace(/\n/g, "  \n")}
-                  </ReactMarkdown>
+                  <MarkdownContent source={formatFeedbackMarkdown(userEntry.feedback ?? "")} />
                 </div>
               ) : null}
               {userEntry.attachments && userEntry.attachments.length > 0 ? (

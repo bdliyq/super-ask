@@ -70,6 +70,30 @@ test("InteractionCard opens markdown links in a new tab by default", () => {
   assert.equal((html.match(/rel="noopener noreferrer"/g) ?? []).length, 1);
 });
 
+test("InteractionCard renders Mermaid placeholders for summary question and feedback", () => {
+  const mermaid = "```mermaid\ngraph TD; A-->B;\n```";
+  const agentEntry: HistoryEntry = {
+    role: "agent",
+    summary: mermaid,
+    question: mermaid,
+    timestamp: 1,
+  };
+  const userEntry: HistoryEntry = {
+    role: "user",
+    feedback: mermaid,
+    timestamp: 2,
+  };
+
+  const html = renderToStaticMarkup(
+    <InteractionCard index={0} agentEntry={agentEntry} userEntry={userEntry} />
+  );
+
+  assert.equal((html.match(/class="markdown-mermaid"/g) ?? []).length, 3);
+  assert.match(html, /markdown-mermaid__fallback/);
+  assert.match(html, /graph TD; A--&gt;B;/);
+  assert.equal((html.match(/data-mermaid-source="graph TD; A--&gt;B;"/g) ?? []).length, 3);
+});
+
 test("SourceBadge renders OpenCode with dedicated label and style", () => {
   const html = renderToStaticMarkup(<SourceBadge source="opencode" />);
 

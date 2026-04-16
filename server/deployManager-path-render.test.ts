@@ -144,7 +144,7 @@ test("deployOpenCode writes rendered AGENTS block and tool file, and undeploy re
   }
 });
 
-test("deploy inserts a divider step between platform groups", async () => {
+test("deploy inserts platform title steps for the first and later platform groups", async () => {
   const projectRoot = await makeProjectRoot();
   const workspace = await makeWorkspace();
 
@@ -156,7 +156,37 @@ test("deploy inserts a divider step between platform groups", async () => {
       scope: "workspace",
     });
 
+    assert.equal(result.steps[0]?.id, "group:deploy:cursor");
+    assert.equal(result.steps[0]?.name, "Cursor");
+    assert.equal(result.steps[0]?.status, "success");
+
     const dividerIndex = result.steps.findIndex((step) => step.id === "group:deploy:vscode");
+    assert.notEqual(dividerIndex, -1);
+    assert.equal(result.steps[dividerIndex]?.name, "Copilot");
+    assert.equal(result.steps[dividerIndex]?.status, "success");
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("undeploy inserts platform title steps for the first and later platform groups", async () => {
+  const projectRoot = await makeProjectRoot();
+  const workspace = await makeWorkspace();
+
+  try {
+    const manager = new DeployManager(projectRoot);
+    const result = await manager.undeploy({
+      platforms: ["cursor", "vscode"],
+      workspacePath: workspace,
+      scope: "workspace",
+    });
+
+    assert.equal(result.steps[0]?.id, "group:undeploy:cursor");
+    assert.equal(result.steps[0]?.name, "Cursor");
+    assert.equal(result.steps[0]?.status, "success");
+
+    const dividerIndex = result.steps.findIndex((step) => step.id === "group:undeploy:vscode");
     assert.notEqual(dividerIndex, -1);
     assert.equal(result.steps[dividerIndex]?.name, "Copilot");
     assert.equal(result.steps[dividerIndex]?.status, "success");
@@ -226,6 +256,8 @@ test("deployOpenCode renders production template without placeholder leaks", asy
     assert.match(renderedAgents, /chatSessionId/);
     assert.match(renderedTool, /source:\s*"opencode"/);
     assert.match(renderedTool, /\/super-ask/);
+    assert.match(renderedTool, /stableChatSessionId/);
+    assert.match(renderedTool, /buildPayload/);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
@@ -391,6 +423,39 @@ test("deployQwenUser writes to ~/.qwen and undeployQwenUser restores prior setti
   } finally {
     process.env.HOME = originalHome;
     await rm(projectRoot, { recursive: true, force: true });
+    await rm(fakeHome, { recursive: true, force: true });
+  }
+});
+
+test("deployCodexUser renders blocking production template and writes both Codex timeout keys", async () => {
+  const fakeHome = await mkdtemp(join(tmpdir(), "super-ask-codex-home-"));
+  const originalHome = process.env.HOME;
+
+  try {
+    process.env.HOME = fakeHome;
+    await mkdir(join(fakeHome, ".codex"), { recursive: true });
+    await writeFile(join(fakeHome, ".codex", "AGENTS.md"), "# Existing\n", "utf-8");
+    await writeFile(
+      join(fakeHome, ".codex", "config.toml"),
+      'background_terminal_max_timeout = 123\n\n[projects."/tmp/demo"]\ntrust_level = "trusted"\n',
+      "utf-8",
+    );
+
+    const manager = new DeployManager(REAL_PROJECT_ROOT);
+    await manager.deployCodexUser();
+
+    const renderedAgents = await readFile(join(fakeHome, ".codex", "AGENTS.md"), "utf-8");
+    const renderedConfig = await readFile(join(fakeHome, ".codex", "config.toml"), "utf-8");
+
+    assert.match(renderedAgents, /<!-- SUPER-ASK-BEGIN -->/);
+    assert.match(renderedAgents, /block_until_ms:? 86400000/);
+    assert.doesNotMatch(renderedAgents, /--no-wait/);
+    assert.doesNotMatch(renderedAgents, /--poll/);
+    assert.match(renderedConfig, /background_terminal_max_timeout\s*=\s*86400000/);
+    assert.match(renderedConfig, /background_terminal_timeout\s*=\s*86400000/);
+    assert.match(renderedConfig, /\[projects\."\/tmp\/demo"\]/);
+  } finally {
+    process.env.HOME = originalHome;
     await rm(fakeHome, { recursive: true, force: true });
   }
 });

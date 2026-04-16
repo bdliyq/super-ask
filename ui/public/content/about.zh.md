@@ -14,33 +14,39 @@ Agent 在执行任务的过程中，可以随时调用 Super Ask 向用户汇报
 
 ## 架构
 
-```
-┌─────────────┐     ┌─────────────┐     ┌──────────────┐
-│  Cursor      │     │  VS Code    │     │  Codex CLI   │
-│  Agent       │     │  Copilot    │     │  Agent       │
-└──────┬───────┘     └──────┬──────┘     └──────┬───────┘
-       │ Shell               │ Shell / LM Tool     │ Shell
-       ▼                     ▼                     ▼
-┌──────────────────────────────────────────────────────────┐
-│              Python CLI (super-ask.py)                    │
-│       POST /super-ask  ─────►  阻塞等待用户回复           │
-└──────────────────────────┬───────────────────────────────┘
-                           │ HTTP + Bearer Token
-                           ▼
-┌──────────────────────────────────────────────────────────┐
-│              Node.js Server (默认端口 19960)               │
-│  ┌──────────┐  ┌─────────────┐  ┌────────────────────┐  │
-│  │ 会话管理  │  │  部署引擎    │  │  上传 / Pin / Tag  │  │
-│  └──────────┘  └─────────────┘  └────────────────────┘  │
-│                    WebSocket 实时推送                      │
-└──────────────────────┬───────────────────────────────────┘
-                       ▼
-┌──────────────────────────────────────────────────────────┐
-│                React Web UI (Vite)                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐ │
-│  │ 会话列表  │  │ 聊天视图  │  │ 部署面板  │  │  设置   │ │
-│  └──────────┘  └──────────┘  └──────────┘  └─────────┘ │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph agents["接入平台"]
+    direction LR
+    cursor["Cursor<br/>Agent"]
+    copilot["VS Code<br/>Copilot"]
+    codex["Codex CLI<br/>Agent"]
+  end
+
+  cli["Python CLI (super-ask.py)<br/>POST /super-ask<br/>阻塞等待用户回复"]
+
+  subgraph server["Node.js Server (默认端口 19960)"]
+    direction LR
+    session["会话管理"]
+    deploy["部署引擎"]
+    upload["上传 / Pin / Tag"]
+  end
+
+  push["WebSocket 实时推送"]
+
+  subgraph web["React Web UI (Vite)"]
+    direction LR
+    sessions["会话列表"]
+    chat["聊天视图"]
+    panel["部署面板"]
+    settings["设置"]
+  end
+
+  cursor -->|"Shell"| cli
+  copilot -->|"Shell / LM Tool"| cli
+  codex -->|"Shell"| cli
+  cli -->|"HTTP + Bearer Token"| server
+  server --> push --> web
 ```
 
 ## 核心特性

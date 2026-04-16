@@ -124,6 +124,24 @@ function removeOpencodeBlock(content: string): string {
   return removeMarkedBlock(content, OPENCODE_MARKER_BEGIN, OPENCODE_MARKER_END);
 }
 
+function upsertTopLevelTomlScalar(content: string, key: string, value: string): string {
+  const re = new RegExp(`^\\s*${key}\\s*=.*$`, "m");
+  if (re.test(content)) {
+    return content.replace(re, `${key} = ${value}`);
+  }
+
+  const line = `${key} = ${value}`;
+  const sectionRe = /^\s*\[/m;
+  const match = sectionRe.exec(content);
+  if (match && match.index !== undefined) {
+    const before = content.slice(0, match.index).trimEnd();
+    const after = content.slice(match.index);
+    return (before ? before + "\n" : "") + line + "\n\n" + after;
+  }
+
+  return content.trimEnd() + (content.trim() ? "\n" : "") + line + "\n";
+}
+
 function parseJsonObject(raw: string, label: string): Record<string, unknown> {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -483,27 +501,13 @@ export class DeployManager {
       await writeFileContent(agentsMd, updated);
     }, agentsMd);
 
-    await this.runStep(steps, "set_background_timeout", "设置 config.toml background_terminal_max_timeout = 86400000", async () => {
+    await this.runStep(steps, "set_background_timeout", "设置 config.toml 中的 Codex 终端超时键为 86400000", async () => {
       let content = "";
       try {
         content = await readFileContent(configToml);
       } catch { /* 文件不存在 */ }
-      const key = "background_terminal_max_timeout";
-      const re = new RegExp(`^\\s*${key}\\s*=.*$`, "m");
-      if (re.test(content)) {
-        content = content.replace(re, `${key} = 86400000`);
-      } else {
-        const line = `${key} = 86400000`;
-        const sectionRe = /^\s*\[/m;
-        const match = sectionRe.exec(content);
-        if (match && match.index !== undefined) {
-          const before = content.slice(0, match.index).trimEnd();
-          const after = content.slice(match.index);
-          content = (before ? before + "\n" : "") + line + "\n\n" + after;
-        } else {
-          content = content.trimEnd() + (content.trim() ? "\n" : "") + line + "\n";
-        }
-      }
+      content = upsertTopLevelTomlScalar(content, "background_terminal_max_timeout", "86400000");
+      content = upsertTopLevelTomlScalar(content, "background_terminal_timeout", "86400000");
       await writeFileContent(configToml, content);
     }, configToml);
 
@@ -1428,14 +1432,12 @@ export class DeployManager {
       return true;
     });
 
-    for (const [index, p] of platforms.entries()) {
-      if (index > 0) {
-        steps.push({
-          id: `group:deploy:${p}`,
-          name: deployPlatformLabel(p),
-          status: "success",
-        });
-      }
+    for (const p of platforms) {
+      steps.push({
+        id: `group:deploy:${p}`,
+        name: deployPlatformLabel(p),
+        status: "success",
+      });
       if (scope === "user") {
         if (p === "cursor") {
           steps.push(...(await this.deployCursorUser()));
@@ -1478,14 +1480,12 @@ export class DeployManager {
       return true;
     });
 
-    for (const [index, p] of platforms.entries()) {
-      if (index > 0) {
-        steps.push({
-          id: `group:undeploy:${p}`,
-          name: deployPlatformLabel(p),
-          status: "success",
-        });
-      }
+    for (const p of platforms) {
+      steps.push({
+        id: `group:undeploy:${p}`,
+        name: deployPlatformLabel(p),
+        status: "success",
+      });
       if (scope === "user") {
         if (p === "cursor") {
           steps.push(...(await this.undeployCursorUser()));

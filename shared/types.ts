@@ -52,6 +52,7 @@ export type WsServerMessage =
   | WsSync
   | WsSessionDeleted
   | WsPinUpdate
+  | WsPinnedSessionOrderUpdate
   | WsTagUpdate
   | WsReplyResult;
 
@@ -82,6 +83,8 @@ export interface WsSessionUpdate {
 export interface WsSync {
   type: "sync";
   sessions: SessionInfo[];
+  /** 会话列表 pin 顺序（跨端同步，服务端为准） */
+  pinnedSessionIds?: string[];
 }
 
 export interface WsReply {
@@ -117,6 +120,11 @@ export interface WsPinUpdate {
   type: "pin_update";
   chatSessionId: string;
   pinnedIndices: number[];
+}
+
+export interface WsPinnedSessionOrderUpdate {
+  type: "pinned_session_order_update";
+  pinnedSessionIds: string[];
 }
 
 export interface WsTagUpdate {

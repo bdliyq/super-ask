@@ -8,12 +8,41 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime
+from enum import Enum
 import urllib.error
 import urllib.request
 
 DEFAULT_PORT = 19960
 DEFAULT_TIMEOUT = 86400  # 24 小时（秒）
 HOST = "127.0.0.1"
+
+
+class RequestOutcome(Enum):
+    SUCCESS = "success"
+    RETRYABLE = "retryable"
+    FATAL = "fatal"
+    FATAL_RESPONSE = "fatal_response"
+
+
+def _log_path() -> str:
+    log_dir = os.path.join(os.path.expanduser("~"), ".super-ask", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    return os.path.join(log_dir, f"{datetime.now().strftime('%Y-%m-%d')}.log")
+
+
+def _log_event(event: str, **payload: object) -> None:
+    entry = {
+        "timestamp": datetime.now().astimezone().isoformat(),
+        "source": "cli",
+        "event": event,
+        **payload,
+    }
+    try:
+        with open(_log_path(), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n")
+    except OSError:
+        pass
 
 
 def _read_auth_token(port: int) -> str | None:
@@ -50,17 +79,20 @@ def _build_payload(args: argparse.Namespace) -> dict:
     return body
 
 
-def _http_error_message(code: int, body: bytes) -> str:
+def _http_error_message(body: bytes) -> tuple[str, str | None]:
     text = body.decode("utf-8", errors="replace").strip()
     if not text:
-        return ""
+        return "", None
     try:
         obj = json.loads(text)
-        if isinstance(obj, dict) and "error" in obj and isinstance(obj["error"], str):
-            return obj["error"]
+        if isinstance(obj, dict):
+            msg = obj.get("error")
+            code = obj.get("code")
+            if isinstance(msg, str):
+                return msg, code if isinstance(code, str) else None
     except json.JSONDecodeError:
         pass
-    return text[:2000] if len(text) > 2000 else text
+    return (text[:2000] if len(text) > 2000 else text), None
 
 
 def _is_timeout(err: BaseException) -> bool:
@@ -82,64 +114,202 @@ def _send_request(
     payload: dict,
     timeout: int = DEFAULT_TIMEOUT,
     auth_token: str | None = None,
-) -> tuple[int, str]:
-    """发送 POST 请求并返回 (exit_code, output)。exit_code=0 时 output 为 JSON 字符串。"""
+) -> tuple[RequestOutcome, str]:
+    """发送 POST 请求并返回 (outcome, output)。SUCCESS 时 output 为 JSON 字符串。"""
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        **({"Authorization": f"Bearer {auth_token}"} if auth_token else {}),
+    }
+    _log_event(
+        "request.attempt",
+        url=url,
+        method="POST",
+        headers=headers,
+        payload=payload,
+        timeout=timeout,
+    )
     req = urllib.request.Request(
         url,
         data=data,
         method="POST",
-        headers={
-            "Content-Type": "application/json; charset=utf-8",
-            **({"Authorization": f"Bearer {auth_token}"} if auth_token else {}),
-        },
+        headers=headers,
     )
 
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
+            raw_text = raw.decode("utf-8", errors="replace")
+            _log_event(
+                "response.success",
+                url=url,
+                status=getattr(resp, "status", 200),
+                headers=dict(resp.headers.items()),
+                rawResponse=raw_text,
+            )
     except urllib.error.HTTPError as e:
-        msg = _http_error_message(e.code, e.read())
+        raw = e.read()
+        raw_text = raw.decode("utf-8", errors="replace")
+        msg, err_code = _http_error_message(raw)
+        message = f"错误: Server 返回 HTTP {e.code}: {msg}" if msg else f"错误: Server 返回 HTTP {e.code}: {e.reason}"
+        _log_event(
+            "response.http_error",
+            url=url,
+            method="POST",
+            headers=headers,
+            payload=payload,
+            timeout=timeout,
+            status=e.code,
+            reason=str(e.reason),
+            rawResponse=raw_text,
+            message=message,
+            errorCode=err_code,
+        )
+        if e.code == 503 and err_code == "SERVER_SHUTTING_DOWN":
+            return RequestOutcome.RETRYABLE, message
         if msg:
-            return 1, f"错误: Server 返回 HTTP {e.code}: {msg}"
-        return 1, f"错误: Server 返回 HTTP {e.code}: {e.reason}"
+            return RequestOutcome.FATAL, message
+        return RequestOutcome.FATAL, message
     except urllib.error.URLError as e:
+        message = "错误: 等待回复超时" if _is_timeout(e) else "错误: Super Ask Server 未运行。请先启动: super-ask start"
+        _log_event(
+            "response.transport_error",
+            url=url,
+            method="POST",
+            headers=headers,
+            payload=payload,
+            timeout=timeout,
+            errorType=type(e).__name__,
+            error=repr(e),
+            message=message,
+        )
         if _is_timeout(e):
-            return 1, "错误: 等待回复超时"
-        return 2, "错误: Super Ask Server 未运行。请先启动: super-ask start"
-    except TimeoutError:
-        return 1, "错误: 等待回复超时"
-    except OSError:
-        return 2, "错误: Super Ask Server 未运行或网络异常"
+            return RequestOutcome.RETRYABLE, message
+        return RequestOutcome.RETRYABLE, message
+    except TimeoutError as e:
+        _log_event(
+            "response.transport_error",
+            url=url,
+            method="POST",
+            headers=headers,
+            payload=payload,
+            timeout=timeout,
+            errorType=type(e).__name__,
+            error=repr(e),
+            message="错误: 等待回复超时",
+        )
+        return RequestOutcome.RETRYABLE, "错误: 等待回复超时"
+    except OSError as e:
+        _log_event(
+            "response.transport_error",
+            url=url,
+            method="POST",
+            headers=headers,
+            payload=payload,
+            timeout=timeout,
+            errorType=type(e).__name__,
+            errno=getattr(e, "errno", None),
+            error=repr(e),
+            message="错误: Super Ask Server 未运行或网络异常",
+        )
+        return RequestOutcome.RETRYABLE, "错误: Super Ask Server 未运行或网络异常"
+    except Exception as e:
+        _log_event(
+            "response.transport_error",
+            url=url,
+            method="POST",
+            headers=headers,
+            payload=payload,
+            timeout=timeout,
+            errorType=type(e).__name__,
+            error=repr(e),
+            message="错误: 连接异常中断",
+        )
+        return RequestOutcome.RETRYABLE, "错误: 连接异常中断"
 
     try:
-        obj = json.loads(raw.decode("utf-8"))
+        obj = json.loads(raw_text)
     except (json.JSONDecodeError, UnicodeDecodeError):
-        return 1, "错误: Server 返回无效响应"
+        _log_event(
+            "response.invalid",
+            url=url,
+            rawResponse=raw_text,
+            message="错误: Server 返回无效响应",
+        )
+        return RequestOutcome.FATAL_RESPONSE, "错误: Server 返回无效响应"
 
     if not isinstance(obj, dict):
-        return 1, "错误: Server 返回无效响应"
+        _log_event(
+            "response.invalid",
+            url=url,
+            rawResponse=raw_text,
+            message="错误: Server 返回无效响应",
+        )
+        return RequestOutcome.FATAL_RESPONSE, "错误: Server 返回无效响应"
 
-    return 0, json.dumps(obj, ensure_ascii=False)
+    # 长连接模式下 Server 重启时，响应头已以 200 发送，错误通过 JSON body 传递。
+    # 客户端通过 code 字段识别可重试错误。
+    if obj.get("code") == "SERVER_SHUTTING_DOWN":
+        message = f"错误: {obj.get('error', '服务器正在关闭')}"
+        _log_event("response.shutdown_retry", url=url, rawResponse=raw_text, message=message)
+        return RequestOutcome.RETRYABLE, message
+
+    output = json.dumps(obj, ensure_ascii=False)
+    _log_event("response.parsed", url=url, parsedResponse=obj)
+    return RequestOutcome.SUCCESS, output
 
 
 def _send_ack(port: int, chat_session_id: str, auth_token: str | None = None) -> None:
     """向 Server 发送确认回执（best-effort，失败不影响主流程）"""
     url = f"http://{HOST}:{port}/api/ack"
-    data = json.dumps({"chatSessionId": chat_session_id}).encode("utf-8")
+    payload = {"chatSessionId": chat_session_id}
+    data = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        **({"Authorization": f"Bearer {auth_token}"} if auth_token else {}),
+    }
+    _log_event(
+        "ack.attempt",
+        url=url,
+        method="POST",
+        headers=headers,
+        payload=payload,
+        timeout=5,
+    )
     req = urllib.request.Request(
         url,
         data=data,
         method="POST",
-        headers={
-            "Content-Type": "application/json; charset=utf-8",
-            **({"Authorization": f"Bearer {auth_token}"} if auth_token else {}),
-        },
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
-            resp.read()
-    except Exception:
+            raw = resp.read().decode("utf-8", errors="replace")
+            _log_event(
+                "ack.success",
+                url=url,
+                status=getattr(resp, "status", 200),
+                headers=dict(resp.headers.items()),
+                rawResponse=raw,
+                payload=payload,
+            )
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace")
+        _log_event(
+            "ack.error",
+            url=url,
+            status=e.code,
+            reason=str(e.reason),
+            rawResponse=raw,
+            payload=payload,
+        )
+    except Exception as e:
+        _log_event(
+            "ack.error",
+            url=url,
+            payload=payload,
+            error=repr(e),
+        )
         pass
 
 
@@ -197,8 +367,8 @@ def main() -> int:
     parser.add_argument(
         "--retries",
         type=int,
-        default=3,
-        help="网络错误时的重试次数（默认 3）",
+        default=-1,
+        help="可恢复错误的重试次数（默认 -1，表示无限重试）",
     )
     args = parser.parse_args()
 
@@ -211,15 +381,22 @@ def main() -> int:
     url = f"http://{HOST}:{args.port}/super-ask"
     payload = _build_payload(args)
 
-    max_retries = max(0, args.retries)
+    max_retries = args.retries
+    retry_count = 0
 
-    for attempt in range(max_retries + 1):
-        code, output = _send_request(
+    while True:
+        outcome, output = _send_request(
             url, payload, timeout=DEFAULT_TIMEOUT, auth_token=auth_token
         )
-        if code == 0:
+        if outcome == RequestOutcome.SUCCESS:
             vcode, vout = _validate_blocking_response(output)
             if vcode != 0:
+                _log_event(
+                    "response.invalid_blocking",
+                    url=url,
+                    output=output,
+                    message=vout,
+                )
                 print(vout, file=sys.stderr)
                 return 1
             try:
@@ -229,13 +406,39 @@ def main() -> int:
                     _send_ack(args.port, cid, auth_token)
             except Exception:
                 pass
+            _log_event("result.returned", url=url, output=output)
             print(output)
             return 0
-        if code != 2 or attempt >= max_retries:
+        if outcome != RequestOutcome.RETRYABLE:
+            _log_event(
+                "request.fatal",
+                url=url,
+                outcome=outcome.value,
+                message=output,
+            )
             print(output, file=sys.stderr)
             return 1
+        if max_retries >= 0 and retry_count >= max_retries:
+            _log_event(
+                "request.retry_exhausted",
+                url=url,
+                outcome=outcome.value,
+                retryCount=retry_count,
+                maxRetries=max_retries,
+                message=output,
+            )
+            print(output, file=sys.stderr)
+            return 1
+        retry_count += 1
         wait = 10
-        print(f"连接失败，{wait}秒后重试 ({attempt + 1}/{max_retries})...", file=sys.stderr)
+        _log_event(
+            "retry.wait",
+            url=url,
+            retryCount=retry_count,
+            maxRetries=max_retries,
+            waitSeconds=wait,
+            message=output,
+        )
         import time
         time.sleep(wait)
 

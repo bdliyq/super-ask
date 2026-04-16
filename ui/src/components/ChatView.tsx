@@ -179,47 +179,49 @@ export function ChatView({ session, onSendReply, queuedReplies = [], onRemoveQue
       <div className="chat-view__banner">
         <div className="chat-view__banner-left">
           <SourceBadge source={session.source} />
-          <span className="chat-view__banner-title">{session.title || t.unnamedSession}</span>
-          <RequestStatusBadge status={session.requestStatus} />
-          {(session.tags ?? []).map((tag) => (
-            <span key={tag} className="chat-view__tag">
-              {tag}
+          <div className="chat-view__banner-title-group">
+            <span className="chat-view__banner-title">{session.title || t.unnamedSession}</span>
+            {showTagInput ? (
+              <input
+                ref={tagInputRef}
+                className="chat-view__tag-input"
+                type="text"
+                value={tagInputValue}
+                placeholder={t.addTagPlaceholder}
+                onChange={(e) => setTagInputValue(e.target.value)}
+                onKeyDown={handleTagInputKeyDown}
+                onBlur={() => {
+                  const val = tagInputValue.trim();
+                  if (val) void handleAddTag(val);
+                  setTagInputValue("");
+                  setShowTagInput(false);
+                }}
+              />
+            ) : (
               <button
                 type="button"
-                className="chat-view__tag-remove"
-                title={t.removeTag}
-                onClick={() => void handleRemoveTag(tag)}
+                className="chat-view__tag-add-btn"
+                title={t.addTag}
+                onClick={() => setShowTagInput(true)}
               >
-                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
+                <span className="chat-view__tag-add-glyph" aria-hidden="true">#</span>
               </button>
-            </span>
-          ))}
-          {showTagInput ? (
-            <input
-              ref={tagInputRef}
-              className="chat-view__tag-input"
-              type="text"
-              value={tagInputValue}
-              placeholder={t.addTagPlaceholder}
-              onChange={(e) => setTagInputValue(e.target.value)}
-              onKeyDown={handleTagInputKeyDown}
-              onBlur={() => {
-                const val = tagInputValue.trim();
-                if (val) void handleAddTag(val);
-                setTagInputValue("");
-                setShowTagInput(false);
-              }}
-            />
-          ) : (
-            <button
-              type="button"
-              className="chat-view__tag-add-btn"
-              title={t.addTag}
-              onClick={() => setShowTagInput(true)}
-            >
-              <span className="chat-view__tag-add-glyph" aria-hidden="true">#</span>
-            </button>
-          )}
+            )}
+            {(session.tags ?? []).map((tag) => (
+              <span key={tag} className="chat-view__tag">
+                {tag}
+                <button
+                  type="button"
+                  className="chat-view__tag-remove"
+                  title={t.removeTag}
+                  onClick={() => void handleRemoveTag(tag)}
+                >
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
+                </button>
+              </span>
+            ))}
+            <RequestStatusBadge status={session.requestStatus} />
+          </div>
           {session.workspaceRoot ? (
             <span className="chat-view__banner-workspace" title={session.workspaceRoot}>
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{marginRight: '4px', opacity: 0.85, flexShrink: 0}}>

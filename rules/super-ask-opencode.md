@@ -11,14 +11,16 @@
 3. 遇到需要用户决策的问题时，必须调用 `super-ask`
 4. 绝对不要在不调用 `super-ask` 的情况下结束当前回合
 5. 每次调用都应传入 `workspaceRoot`；通常传当前工作区根路径
+6. `super-ask` 是阻塞式调用，调用之后，没有收到用户反馈之前，不要重复调用
 
 ## chatSessionId 管理（极其重要）
 
 你必须在整个对话过程中维护 `chatSessionId`：
 
-1. 第一次调用：不要传 `chatSessionId`
-2. 后续调用：必须复用上一次 `super-ask` 返回结果中的 `chatSessionId`
-3. 如果丢失 `chatSessionId`，不得绕过 `super-ask` 直接回复；先从上一次响应或可用记录找回。若找不到，继续调用 `super-ask` 新建会话，并明确说明“本次已新建会话，原会话可能不连续”。
+1. 每次调用 `super-ask` 时必须复用上一次 `super-ask` 返回结果中的 `chatSessionId` 并传入工具参数
+2. 每次 `super-ask` 返回结果时必须从返回结果中提取 `chatSessionId` 供下次调用 `super-ask` 时传入
+3. **chatSessionId 唯一合法来源**：只使用 `super-ask` 工具的**直接返回值**中的 chatSessionId。绝不使用从其他工具调用、历史记录或上下文其他部分看到的 chatSessionId
+4. 如果丢失 `chatSessionId`：直接新建会话（不传 chatSessionId），不要在上下文中搜索。新建时向用户说明"已新建会话，原会话不连续"
 
 ## 调用方式
 

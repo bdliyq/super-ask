@@ -22,6 +22,15 @@ export interface Translations {
   tooltipStatus: string;
   tooltipSessionId: string;
   tooltipLastActive: string;
+  sessionGroupToday: string;
+  sessionGroupYesterday: string;
+  sessionGroupRecent7: string;
+  sessionGroupOlder: string;
+  sessionGroupExpand: string;
+  sessionGroupCollapse: string;
+  sessionGroupShowMore: string;
+  sessionGroupShowLess: string;
+  toggleSidebar: string;
 
   // 会话来源
   sourceUnknown: string;
@@ -79,6 +88,8 @@ export interface Translations {
   systemSettings: string;
   about: string;
   aboutLoading: string;
+  aboutLoadFailed: string;
+  aboutEmpty: string;
   language: string;
   languageDesc: string;
   langZh: string;
@@ -189,6 +200,15 @@ export const zh: Translations = {
   tooltipStatus: "状态",
   tooltipSessionId: "会话ID",
   tooltipLastActive: "最近活动",
+  sessionGroupToday: "今天",
+  sessionGroupYesterday: "昨天",
+  sessionGroupRecent7: "最近7天",
+  sessionGroupOlder: "更早",
+  sessionGroupExpand: "展开",
+  sessionGroupCollapse: "折叠",
+  sessionGroupShowMore: "查看更多",
+  sessionGroupShowLess: "收起",
+  toggleSidebar: "切换侧边栏",
 
   sourceUnknown: "未知",
 
@@ -238,6 +258,8 @@ export const zh: Translations = {
   systemSettings: "系统设置",
   about: "关于",
   aboutLoading: "正在加载关于页面内容…",
+  aboutLoadFailed: "关于页面内容加载失败。",
+  aboutEmpty: "关于页面内容为空（服务器返回了空文件）。",
   language: "语言",
   languageDesc: "选择界面显示语言",
   langZh: "中文",
@@ -339,6 +361,15 @@ export const en: Translations = {
   tooltipStatus: "Status",
   tooltipSessionId: "Session ID",
   tooltipLastActive: "Last Active",
+  sessionGroupToday: "Today",
+  sessionGroupYesterday: "Yesterday",
+  sessionGroupRecent7: "Recent 7 Days",
+  sessionGroupOlder: "Earlier",
+  sessionGroupExpand: "Expand",
+  sessionGroupCollapse: "Collapse",
+  sessionGroupShowMore: "Show more",
+  sessionGroupShowLess: "Show less",
+  toggleSidebar: "Toggle sidebar",
 
   sourceUnknown: "Unknown",
 
@@ -388,6 +419,8 @@ export const en: Translations = {
   systemSettings: "System Settings",
   about: "About",
   aboutLoading: "Loading about page content…",
+  aboutLoadFailed: "Failed to load about page content.",
+  aboutEmpty: "About page content is empty (the server returned an empty file).",
   language: "Language",
   languageDesc: "Choose the display language",
   langZh: "中文",

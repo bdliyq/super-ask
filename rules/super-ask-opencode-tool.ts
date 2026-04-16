@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { tool } from "@opencode-ai/plugin";
@@ -9,8 +10,11 @@ const SUPER_ASK_DIR = join(homedir(), ".super-ask");
 const SUPER_ASK_TOKEN_PATH = join(SUPER_ASK_DIR, "token");
 const SUPER_ASK_CONFIG_PATH = join(SUPER_ASK_DIR, "config.json");
 const RETRY_DELAY_MS = 10_000;
-const DEFAULT_RETRIES = 6;
+const DEFAULT_RETRIES = -1;
+const REQUEST_TIMEOUT_MS = 86_400_000;
+const ACK_TIMEOUT_MS = 5_000;
 const INSTALL_HINT = `bash "{{SUPER_ASK_INSTALL_SH}}"`;
+const LOGS_DIR = join(SUPER_ASK_DIR, "logs");
 
 interface SuperAskConfigFile {
   host?: unknown;
@@ -19,6 +23,37 @@ interface SuperAskConfigFile {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
+}
+
+function currentDateStamp(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function currentLogPath(date = new Date()): string {
+  return join(LOGS_DIR, `${currentDateStamp(date)}.log`);
+}
+
+async function logEvent(event: string, payload: Record<string, unknown>): Promise<void> {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    source: "opencode-tool",
+    event,
+    ...payload,
+  };
+  try {
+    await mkdir(LOGS_DIR, { recursive: true });
+    await appendFile(currentLogPath(), `${JSON.stringify(entry)}\n`, "utf-8");
+  } catch {
+    // 日志为 best-effort，不影响主流程。
+  }
+}
+
+function buildHeaders(token: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json; charset=utf-8",
+  };
 }
 
 function buildServerUrl(host: string, port: number): string {
@@ -87,61 +122,239 @@ function normalizeOptions(options?: string[]): string[] | undefined {
   return cleaned.length > 0 ? cleaned : undefined;
 }
 
-async function parseError(response: Response): Promise<string> {
+async function parseError(response: Response): Promise<{
+  message: string;
+  code?: string;
+  rawText: string;
+}> {
   const text = await response.text();
   if (!text) {
-    return `HTTP ${response.status}`;
+    return { message: `HTTP ${response.status}`, rawText: "" };
   }
 
   try {
-    const parsed = JSON.parse(text) as { error?: unknown };
+    const parsed = JSON.parse(text) as { error?: unknown; code?: unknown };
     if (typeof parsed.error === "string" && parsed.error.trim()) {
-      return parsed.error;
+      return {
+        message: parsed.error,
+        code: typeof parsed.code === "string" ? parsed.code : undefined,
+        rawText: text,
+      };
     }
   } catch {
     // 响应不是 JSON 时直接回退原文。
   }
 
-  return text;
+  return { message: text, rawText: text };
 }
 
-async function postJson(url: string, token: string, body: unknown): Promise<Response> {
+function buildTimeoutSignal(timeoutMs: number): AbortSignal {
+  if (typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(timeoutMs);
+  }
+
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(new Error("timeout")), timeoutMs);
+  return controller.signal;
+}
+
+function isTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const detail = `${error.name} ${error.message}`.toLowerCase();
+  return (
+    error.name === "TimeoutError" ||
+    error.name === "AbortError" ||
+    detail.includes("timeout") ||
+    detail.includes("timed out")
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readMaxRetries(): number {
+  const retries = Number.parseInt(process.env.SUPER_ASK_RETRIES ?? "", 10);
+  return Number.isFinite(retries) ? retries : DEFAULT_RETRIES;
+}
+
+async function postJson(
+  url: string,
+  token: string,
+  body: unknown,
+  timeoutMs: number,
+): Promise<Response> {
   return fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json; charset=utf-8",
-    },
+    headers: buildHeaders(token),
     body: JSON.stringify(body),
+    signal: buildTimeoutSignal(timeoutMs),
   });
 }
 
-async function requestWithRetries(url: string, token: string, body: unknown): Promise<Response> {
-  const retries = Number.parseInt(process.env.SUPER_ASK_RETRIES ?? "", 10);
-  const maxRetries =
-    Number.isFinite(retries) && retries >= 0 ? retries : DEFAULT_RETRIES;
+async function requestWithRetries(
+  url: string,
+  token: string,
+  buildBody: () => Record<string, unknown>,
+): Promise<Response> {
+  const maxRetries = readMaxRetries();
+  let retryCount = 0;
 
-  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+  while (true) {
+    const body = buildBody();
+    const headers = buildHeaders(token);
+    await logEvent("request.attempt", {
+      url,
+      method: "POST",
+      headers,
+      payload: body,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      retryCount,
+      maxRetries,
+    });
+    let response: Response;
     try {
-      return await postJson(url, token, body);
+      response = await postJson(url, token, body, REQUEST_TIMEOUT_MS);
     } catch (error) {
-      if (attempt >= maxRetries) {
+      await logEvent("response.transport_error", {
+        url,
+        method: "POST",
+        headers,
+        payload: body,
+        timeoutMs: REQUEST_TIMEOUT_MS,
+        retryCount,
+        maxRetries,
+        errorName: error instanceof Error ? error.name : undefined,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      if (maxRetries >= 0 && retryCount >= maxRetries) {
         const message = error instanceof Error ? error.message : String(error);
+        if (isTimeoutError(error)) {
+          await logEvent("request.retry_exhausted", {
+            url,
+            retryCount,
+            maxRetries,
+            message: `错误: 等待回复超时（已重试 ${maxRetries} 次）`,
+          });
+          throw new Error(`错误: 等待回复超时（已重试 ${maxRetries} 次）`);
+        }
+        await logEvent("request.fatal", {
+          url,
+          retryCount,
+          maxRetries,
+          message: `连接 super-ask server 失败：${message}。请确认服务已启动（${INSTALL_HINT}）。`,
+        });
         throw new Error(
           `连接 super-ask server 失败：${message}。请确认服务已启动（${INSTALL_HINT}）。`,
         );
       }
-      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      retryCount += 1;
+      await logEvent("retry.wait", {
+        url,
+        retryCount,
+        maxRetries,
+        waitMs: RETRY_DELAY_MS,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      await sleep(RETRY_DELAY_MS);
+      continue;
     }
-  }
 
-  throw new Error("连接 super-ask server 失败。");
+    if (response.ok) {
+      return response;
+    }
+
+    const { message, code, rawText } = await parseError(response);
+    await logEvent("response.http_error", {
+      url,
+      method: "POST",
+      headers,
+      payload: body,
+      status: response.status,
+      code,
+      message,
+      rawResponse: rawText,
+      retryCount,
+      maxRetries,
+    });
+    if (response.status === 503 && code === "SERVER_SHUTTING_DOWN") {
+      if (maxRetries >= 0 && retryCount >= maxRetries) {
+        await logEvent("request.retry_exhausted", {
+          url,
+          retryCount,
+          maxRetries,
+          message: `错误: Server 返回 HTTP ${response.status}: ${message}`,
+        });
+        throw new Error(`错误: Server 返回 HTTP ${response.status}: ${message}`);
+      }
+      retryCount += 1;
+      await logEvent("retry.wait", {
+        url,
+        retryCount,
+        maxRetries,
+        waitMs: RETRY_DELAY_MS,
+        reason: message,
+      });
+      await sleep(RETRY_DELAY_MS);
+      continue;
+    }
+
+    await logEvent("request.fatal", {
+      url,
+      retryCount,
+      maxRetries,
+      message: `错误: Server 返回 HTTP ${response.status}: ${message}`,
+    });
+    throw new Error(`错误: Server 返回 HTTP ${response.status}: ${message}`);
+  }
 }
 
 async function sendAck(serverUrl: string, token: string, chatSessionId: string): Promise<void> {
+  const url = `${serverUrl}/api/ack`;
+  const payload = { chatSessionId };
+  const headers = buildHeaders(token);
+  await logEvent("ack.attempt", {
+    url,
+    method: "POST",
+    headers,
+    payload,
+    timeoutMs: ACK_TIMEOUT_MS,
+  });
   try {
-    await postJson(`${serverUrl}/api/ack`, token, { chatSessionId });
-  } catch {
+    const response = await postJson(
+      url,
+      token,
+      payload,
+      ACK_TIMEOUT_MS,
+    );
+    const rawResponse = await response.text();
+    if (!response.ok) {
+      await logEvent("ack.error", {
+        url,
+        status: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+        payload,
+        rawResponse,
+      });
+      return;
+    }
+    await logEvent("ack.success", {
+      url,
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      payload,
+      rawResponse,
+    });
+  } catch (error) {
+    await logEvent("ack.error", {
+      url,
+      payload,
+      headers,
+      errorName: error instanceof Error ? error.name : undefined,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
     // 确认回执仅影响 UI 状态，不影响主流程。
   }
 }
@@ -166,41 +379,113 @@ export default tool({
     const token = await readAuthToken();
     const serverUrl = await readServerUrl();
     const workspaceRoot = getWorkspaceRoot(context, args.workspaceRoot);
-    const payload = {
-      summary: args.summary,
-      question: args.question,
-      title: args.title,
-      chatSessionId: args.chatSessionId,
-      options: normalizeOptions(args.options),
-      workspaceRoot,
-      source: "opencode",
-    };
+    let stableChatSessionId =
+      typeof args.chatSessionId === "string" && args.chatSessionId.trim() ? args.chatSessionId.trim() : undefined;
 
-    const response = await requestWithRetries(
-      `${serverUrl}/super-ask`,
-      token,
-      Object.fromEntries(
+    const buildPayload = (): Record<string, unknown> => {
+      if (!stableChatSessionId) {
+        stableChatSessionId = randomUUID();
+      }
+      const payload = {
+        summary: args.summary,
+        question: args.question,
+        title: args.title,
+        chatSessionId: stableChatSessionId,
+        options: normalizeOptions(args.options),
+        workspaceRoot,
+        source: "opencode",
+      };
+      return Object.fromEntries(
         Object.entries(payload).filter(([, value]) => value !== undefined && value !== ""),
-      ),
-    );
-
-    if (!response.ok) {
-      throw new Error(await parseError(response));
-    }
-
-    const result = (await response.json()) as {
-      chatSessionId?: unknown;
-      feedback?: unknown;
+      );
     };
 
-    if (typeof result.chatSessionId !== "string" || typeof result.feedback !== "string") {
-      throw new Error("super-ask 响应缺少 chatSessionId 或 feedback。");
-    }
+    const askUrl = `${serverUrl}/super-ask`;
 
-    await sendAck(serverUrl, token, result.chatSessionId);
-    return JSON.stringify({
-      chatSessionId: result.chatSessionId,
-      feedback: result.feedback,
-    });
+    // 外层循环处理 response body 阶段的可恢复错误（如 Server 重启时连接中断）。
+    // requestWithRetries 只保护 fetch 发送阶段；body 读取和 shutdown 响应需额外重试。
+    while (true) {
+      const response = await requestWithRetries(askUrl, token, buildPayload);
+
+      let raw: string;
+      try {
+        raw = await response.text();
+      } catch (error) {
+        await logEvent("response.body_error", {
+          url: askUrl,
+          errorName: error instanceof Error ? error.name : undefined,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        await sleep(RETRY_DELAY_MS);
+        continue;
+      }
+
+      await logEvent("response.success", {
+        url: askUrl,
+        status: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+        rawResponse: raw,
+      });
+      let result: {
+        chatSessionId?: unknown;
+        feedback?: unknown;
+        code?: unknown;
+      };
+      try {
+        result = JSON.parse(raw) as {
+          chatSessionId?: unknown;
+          feedback?: unknown;
+          code?: unknown;
+        };
+      } catch {
+        await logEvent("response.invalid", {
+          url: askUrl,
+          rawResponse: raw,
+          message: "错误: Server 返回无效响应",
+        });
+        throw new Error("错误: Server 返回无效响应");
+      }
+
+      if (result?.code === "SERVER_SHUTTING_DOWN") {
+        await logEvent("response.shutdown_retry", {
+          url: askUrl,
+          rawResponse: raw,
+          parsedResponse: result,
+        });
+        await sleep(RETRY_DELAY_MS);
+        continue;
+      }
+
+      if (
+        !result ||
+        typeof result !== "object" ||
+        typeof result.chatSessionId !== "string" ||
+        typeof result.feedback !== "string"
+      ) {
+        await logEvent("response.invalid", {
+          url: askUrl,
+          rawResponse: raw,
+          parsedResponse: result,
+          message: "错误: Server 返回无效响应",
+        });
+        throw new Error("错误: Server 返回无效响应");
+      }
+
+      await logEvent("response.parsed", {
+        url: askUrl,
+        parsedResponse: result,
+      });
+      await sendAck(serverUrl, token, result.chatSessionId);
+      const output = JSON.stringify({
+        chatSessionId: result.chatSessionId,
+        feedback: result.feedback,
+      });
+      await logEvent("result.returned", {
+        url: askUrl,
+        output,
+        result,
+      });
+      return output;
+    }
   },
 });

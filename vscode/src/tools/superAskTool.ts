@@ -45,7 +45,7 @@ export class SuperAskTool implements vscode.LanguageModelTool<ISuperAskInput> {
       'User feedback:',
       feedback,
       '',
-      '使用`#superAsk`回复我',
+      '使用super-ask工具回复我，回复时必须传入上次调用super-ask工具时返回的chatsessionid',
     ].join('\n');
 
     outputChannel.appendLine(`[invoke] returning chatSessionId="${chatSessionId}" in result`);

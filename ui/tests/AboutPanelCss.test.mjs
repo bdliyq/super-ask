@@ -24,3 +24,10 @@ test("about panel markdown headings do not render divider lines", () => {
     /\.about-panel__markdown\.markdown-body h1,\s*\.about-panel__markdown\.markdown-body h2\s*\{[\s\S]*?border-bottom:\s*none;/,
   );
 });
+
+test("markdown body defines Mermaid block styles", () => {
+  const css = fs.readFileSync(cssPath, "utf8");
+
+  assert.match(css, /\.markdown-body \.markdown-mermaid\s*\{/);
+  assert.match(css, /\.markdown-body \.markdown-mermaid__fallback\s*\{/);
+});

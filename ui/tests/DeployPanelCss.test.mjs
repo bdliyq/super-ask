@@ -15,3 +15,12 @@ test("deploy panel body does not add extra inner padding inside settings content
     /\.deploy-panel__body\s*\{[^}]*padding:\s*0;/,
   );
 });
+
+test("deploy panel platform group titles do not render divider lines", () => {
+  const css = fs.readFileSync(cssPath, "utf8");
+
+  assert.match(
+    css,
+    /\.deploy-step__separator\s*\{[\s\S]*?border-top:\s*none;/,
+  );
+});

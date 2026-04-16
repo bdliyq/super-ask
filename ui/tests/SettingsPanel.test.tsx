@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { SettingsPanel } from "../src/components/SettingsPanel";
 import { I18nProvider } from "../src/i18n/I18nContext";
 
-const aboutMarkdownByLocale = {
+const defaultAboutMarkdownByLocale = {
   zh: readFileSync(new URL("../public/content/about.zh.md", import.meta.url), "utf8"),
   en: readFileSync(new URL("../public/content/about.en.md", import.meta.url), "utf8"),
 } as const;
@@ -14,6 +14,7 @@ const aboutMarkdownByLocale = {
 function renderSettingsPanelWithLocale(
   storedLocale: string | null,
   initialTab: "system" | "deploy" | "about",
+  aboutMarkdownByLocale = defaultAboutMarkdownByLocale,
 ) {
   const originalLocalStorage = globalThis.localStorage;
   globalThis.localStorage = {
@@ -55,6 +56,17 @@ test("SettingsPanel renders Chinese about page with bilingual product content an
   assert.match(html, /https:\/\/github\.com\/bdliyq\/super-ask/);
   assert.equal((html.match(/target="_blank"/g) ?? []).length, 2);
   assert.equal((html.match(/rel="noreferrer"/g) ?? []).length, 2);
+});
+
+test("SettingsPanel renders Mermaid placeholders on the about page", () => {
+  const html = renderSettingsPanelWithLocale("en", "about", {
+    zh: "## 图\n\n```mermaid\ngraph TD; A-->B;\n```",
+    en: "## Diagram\n\n```mermaid\ngraph TD; A-->B;\n```",
+  });
+
+  assert.match(html, /markdown-mermaid/);
+  assert.match(html, /markdown-mermaid__fallback/);
+  assert.match(html, /graph TD; A--&gt;B;/);
 });
 
 test("SettingsPanel renders English about page when locale is en", () => {

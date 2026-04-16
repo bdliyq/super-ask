@@ -30,33 +30,39 @@ Agent 在执行任务的过程中，可以随时调用 Super Ask 向用户汇报
 
 ## 架构
 
-```
-┌─────────────┐     ┌─────────────┐     ┌──────────────┐
-│  Cursor      │     │  VS Code    │     │  Codex CLI   │
-│  Agent       │     │  Copilot    │     │  Agent       │
-└──────┬───────┘     └──────┬──────┘     └──────┬───────┘
-       │ Shell               │ Shell / LM Tool     │ Shell
-       ▼                     ▼                     ▼
-┌──────────────────────────────────────────────────────────┐
-│              Python CLI (super-ask.py)                    │
-│       POST /super-ask  ─────►  阻塞等待用户回复           │
-└──────────────────────────┬───────────────────────────────┘
-                           │ HTTP + Bearer Token
-                           ▼
-┌──────────────────────────────────────────────────────────┐
-│              Node.js Server (默认端口 19960)               │
-│  ┌──────────┐  ┌─────────────┐  ┌────────────────────┐  │
-│  │ 会话管理  │  │  部署引擎    │  │  上传 / Pin / Tag  │  │
-│  └──────────┘  └─────────────┘  └────────────────────┘  │
-│                    WebSocket 实时推送                      │
-└──────────────────────┬───────────────────────────────────┘
-                       ▼
-┌──────────────────────────────────────────────────────────┐
-│                React Web UI (Vite)                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐ │
-│  │ 会话列表  │  │ 聊天视图  │  │ 部署面板  │  │  设置   │ │
-│  └──────────┘  └──────────┘  └──────────┘  └─────────┘ │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph agents["接入平台"]
+    direction LR
+    cursor["Cursor<br/>Agent"]
+    copilot["VS Code<br/>Copilot"]
+    codex["Codex CLI<br/>Agent"]
+  end
+
+  cli["Python CLI (super-ask.py)<br/>POST /super-ask<br/>阻塞等待用户回复"]
+
+  subgraph server["Node.js Server (默认端口 19960)"]
+    direction LR
+    session["会话管理"]
+    deploy["部署引擎"]
+    upload["上传 / Pin / Tag"]
+  end
+
+  push["WebSocket 实时推送"]
+
+  subgraph web["React Web UI (Vite)"]
+    direction LR
+    sessions["会话列表"]
+    chat["聊天视图"]
+    panel["部署面板"]
+    settings["设置"]
+  end
+
+  cursor -->|"Shell"| cli
+  copilot -->|"Shell / LM Tool"| cli
+  codex -->|"Shell"| cli
+  cli -->|"HTTP + Bearer Token"| server
+  server --> push --> web
 ```
 
 ## 核心特性
@@ -124,6 +130,12 @@ bash install.sh
 其中 OpenCode 会通过自定义工具直接调用 super-ask HTTP API，并自动读取本机 `~/.super-ask` 配置与 token。
 OpenCode 自定义工具模板基于官方 `@opencode-ai/plugin` 接口约定生成。
 
+Codex 额外说明：
+
+- **用户全局部署**：除了更新 `~/.codex/AGENTS.md`，还会写入或更新 `~/.codex/config.toml` 中的 Codex 终端超时配置（同时兼容 `background_terminal_max_timeout` 与 `background_terminal_timeout`）。
+- **工作区部署**：只更新当前项目的 `AGENTS.md`，**不会**修改 `~/.codex/config.toml`。
+- **旧版迁移**：如果你之前用旧版 Super Ask 部署过 Codex，请重新部署一次，以刷新 `AGENTS.md` 中注入的 super-ask 规则块。
+
 ## 交互流程
 
 ```
@@ -173,7 +185,9 @@ python3 cli/super-ask.py \
 | `--workspace-root` | | 工作区绝对路径 |
 | `--options` | | 快捷回复选项（可多个） |
 | `--port` | | 服务端口（默认 19960） |
-| `--retries` | | 连接失败重试次数（默认 3） |
+| `--retries` | | 可恢复错误重试次数（默认 `-1`，表示无限重试） |
+
+默认只会对可恢复错误自动重试（含网络不可达、服务器维护关闭、**客户端等待用户回复超时**），间隔 10 秒；`0` 表示不重试，正整数表示最多重试 N 次。像无效 JSON、无效响应格式这类明确响应错误会直接退出。
 
 ### 返回值
 
@@ -293,34 +307,39 @@ During task execution, agents can call Super Ask at any point to report progress
 
 ## Architecture
 
-```
-┌─────────────┐     ┌─────────────┐     ┌──────────────┐
-│  Cursor      │     │  VS Code    │     │  Codex CLI   │
-│  Agent       │     │  Copilot    │     │  Agent       │
-└──────┬───────┘     └──────┬──────┘     └──────┬───────┘
-       │ Shell               │ Shell / LM Tool     │ Shell
-       ▼                     ▼                     ▼
-┌──────────────────────────────────────────────────────────┐
-│              Python CLI (super-ask.py)                    │
-│       POST /super-ask  ─────►  Blocks until user replies  │
-└──────────────────────────┬───────────────────────────────┘
-                           │ HTTP + Bearer Token
-                           ▼
-┌──────────────────────────────────────────────────────────┐
-│              Node.js Server (default port 19960)          │
-│  ┌──────────┐  ┌─────────────┐  ┌────────────────────┐  │
-│  │ Session   │  │  Deploy     │  │  Upload / Pin /    │  │
-│  │ Manager   │  │  Engine     │  │  Tag APIs          │  │
-│  └──────────┘  └─────────────┘  └────────────────────┘  │
-│                    WebSocket Real-time Push               │
-└──────────────────────┬───────────────────────────────────┘
-                       ▼
-┌──────────────────────────────────────────────────────────┐
-│                React Web UI (Vite)                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐ │
-│  │ Sessions  │  │ Chat View│  │ Deploy   │  │Settings │ │
-│  └──────────┘  └──────────┘  └──────────┘  └─────────┘ │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph agents["Connected Platforms"]
+    direction LR
+    cursor["Cursor<br/>Agent"]
+    copilot["VS Code<br/>Copilot"]
+    codex["Codex CLI<br/>Agent"]
+  end
+
+  cli["Python CLI (super-ask.py)<br/>POST /super-ask<br/>Blocks until user replies"]
+
+  subgraph server["Node.js Server (default port 19960)"]
+    direction LR
+    session["Session Manager"]
+    deploy["Deploy Engine"]
+    upload["Upload / Pin / Tag APIs"]
+  end
+
+  push["WebSocket real-time push"]
+
+  subgraph web["React Web UI (Vite)"]
+    direction LR
+    sessions["Sessions"]
+    chat["Chat View"]
+    panel["Deploy Panel"]
+    settings["Settings"]
+  end
+
+  cursor -->|"Shell"| cli
+  copilot -->|"Shell / LM Tool"| cli
+  codex -->|"Shell"| cli
+  cli -->|"HTTP + Bearer Token"| server
+  server --> push --> web
 ```
 
 ## Key Features
@@ -388,6 +407,12 @@ After deployment, agents automatically call Super Ask to report and wait for fee
 For OpenCode, deployment also installs a custom tool that talks to the super-ask HTTP API directly and auto-loads local `~/.super-ask` config and auth token.
 The OpenCode custom tool template is generated against the official `@opencode-ai/plugin` tool contract.
 
+Additional notes for Codex:
+
+- **User-global deploy**: besides updating `~/.codex/AGENTS.md`, it also writes Codex terminal timeout settings into `~/.codex/config.toml` (covering both `background_terminal_max_timeout` and `background_terminal_timeout` for compatibility).
+- **Workspace deploy**: only updates the current project's `AGENTS.md`; it does **not** modify `~/.codex/config.toml`.
+- **Migration**: if you deployed Codex with an older Super Ask release, redeploy once to refresh the injected super-ask rule block in `AGENTS.md`.
+
 ## Interaction Flow
 
 ```
@@ -437,7 +462,9 @@ python3 cli/super-ask.py \
 | `--workspace-root` | | Absolute path to the workspace |
 | `--options` | | Quick-reply options (multiple allowed) |
 | `--port` | | Server port (default 19960) |
-| `--retries` | | Connection failure retry count (default 3) |
+| `--retries` | | Retry count for recoverable errors (default `-1`, meaning retry forever) |
+
+Automatic retries only apply to recoverable errors (connection failures, 503 shutdown, **client-side timeouts while waiting for a user reply**) and use a 10-second interval. `0` disables retries, and a positive integer limits retries to N attempts. Invalid JSON or invalid response formats still fail fast.
 
 ### Response
 

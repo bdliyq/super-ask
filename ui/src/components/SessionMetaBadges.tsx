@@ -1,3 +1,4 @@
+import React from "react";
 import type { SessionInfo } from "@shared/types";
 import { useI18n } from "../i18n";
 

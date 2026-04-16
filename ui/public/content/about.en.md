@@ -14,34 +14,39 @@ During task execution, agents can call Super Ask at any point to report progress
 
 ## Architecture
 
-```
-┌─────────────┐     ┌─────────────┐     ┌──────────────┐
-│  Cursor      │     │  VS Code    │     │  Codex CLI   │
-│  Agent       │     │  Copilot    │     │  Agent       │
-└──────┬───────┘     └──────┬──────┘     └──────┬───────┘
-       │ Shell               │ Shell / LM Tool     │ Shell
-       ▼                     ▼                     ▼
-┌──────────────────────────────────────────────────────────┐
-│              Python CLI (super-ask.py)                    │
-│       POST /super-ask  ─────►  Blocks until user replies  │
-└──────────────────────────┬───────────────────────────────┘
-                           │ HTTP + Bearer Token
-                           ▼
-┌──────────────────────────────────────────────────────────┐
-│              Node.js Server (default port 19960)          │
-│  ┌──────────┐  ┌─────────────┐  ┌────────────────────┐  │
-│  │ Session   │  │  Deploy     │  │  Upload / Pin /    │  │
-│  │ Manager   │  │  Engine     │  │  Tag APIs          │  │
-│  └──────────┘  └─────────────┘  └────────────────────┘  │
-│                    WebSocket Real-time Push               │
-└──────────────────────┬───────────────────────────────────┘
-                       ▼
-┌──────────────────────────────────────────────────────────┐
-│                React Web UI (Vite)                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐ │
-│  │ Sessions  │  │ Chat View│  │ Deploy   │  │Settings │ │
-│  └──────────┘  └──────────┘  └──────────┘  └─────────┘ │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph agents["Connected Platforms"]
+    direction LR
+    cursor["Cursor<br/>Agent"]
+    copilot["VS Code<br/>Copilot"]
+    codex["Codex CLI<br/>Agent"]
+  end
+
+  cli["Python CLI (super-ask.py)<br/>POST /super-ask<br/>Blocks until user replies"]
+
+  subgraph server["Node.js Server (default port 19960)"]
+    direction LR
+    session["Session Manager"]
+    deploy["Deploy Engine"]
+    upload["Upload / Pin / Tag APIs"]
+  end
+
+  push["WebSocket real-time push"]
+
+  subgraph web["React Web UI (Vite)"]
+    direction LR
+    sessions["Sessions"]
+    chat["Chat View"]
+    panel["Deploy Panel"]
+    settings["Settings"]
+  end
+
+  cursor -->|"Shell"| cli
+  copilot -->|"Shell / LM Tool"| cli
+  codex -->|"Shell"| cli
+  cli -->|"HTTP + Bearer Token"| server
+  server --> push --> web
 ```
 
 ## Key Features

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { SessionInfo, WsServerMessage } from "@shared/types";
+import { withAuthHeaders } from "../auth";
 
 function sessionsMapFromSync(list: SessionInfo[]): Map<string, SessionInfo> {
   const m = new Map<string, SessionInfo>();
@@ -20,12 +21,104 @@ function pendingFromStatus(status: "pending" | "cancelled" | "replied" | "acked"
  * 会话列表、当前选中 Tab、以及处理服务端 WebSocket 消息的 reducer 逻辑。
  */
 const ACTIVE_SESSION_KEY = "super-ask:activeSessionId";
+const PINNED_SESSION_ORDER_KEY = "super-ask:pinnedSessionOrder";
+
+function readPinnedSessionOrder(): string[] {
+  const raw = localStorage.getItem(PINNED_SESSION_ORDER_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return Array.from(
+      new Set(
+        parsed
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function persistPinnedSessionOrder(pinnedSessionIds: string[]): void {
+  if (pinnedSessionIds.length > 0) {
+    localStorage.setItem(PINNED_SESSION_ORDER_KEY, JSON.stringify(pinnedSessionIds));
+  } else {
+    localStorage.removeItem(PINNED_SESSION_ORDER_KEY);
+  }
+}
+
+function sameSessionIdOrder(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((id, index) => id === right[index]);
+}
+
+function prunePinnedSessionOrder(pinnedSessionIds: string[], sessionIds: Iterable<string>): string[] {
+  const existingIds = new Set(sessionIds);
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const raw of pinnedSessionIds) {
+    const chatSessionId = raw.trim();
+    if (!chatSessionId || seen.has(chatSessionId) || !existingIds.has(chatSessionId)) {
+      continue;
+    }
+    seen.add(chatSessionId);
+    next.push(chatSessionId);
+  }
+  return next;
+}
+
+export function togglePinnedSessionOrder(pinnedSessionIds: string[], chatSessionId: string): string[] {
+  const filtered = pinnedSessionIds.filter((id) => id !== chatSessionId);
+  if (filtered.length !== pinnedSessionIds.length) {
+    return filtered;
+  }
+  return [chatSessionId, ...filtered];
+}
+
+export function resolvePinnedSessionOrderFromSync(
+  serverPinnedSessionIds: string[] | undefined,
+  localPinnedSessionIds: string[],
+  sessionIds: Iterable<string>,
+): string[] {
+  return prunePinnedSessionOrder(
+    Array.isArray(serverPinnedSessionIds) ? serverPinnedSessionIds : localPinnedSessionIds,
+    sessionIds,
+  );
+}
+
+export function sortSessionsForSidebar(sessions: SessionInfo[], pinnedSessionIds: string[]): SessionInfo[] {
+  const pinOrder = new Map(
+    prunePinnedSessionOrder(pinnedSessionIds, sessions.map((session) => session.chatSessionId))
+      .map((chatSessionId, index) => [chatSessionId, index]),
+  );
+
+  return [...sessions].sort((left, right) => {
+    const leftPinOrder = pinOrder.get(left.chatSessionId);
+    const rightPinOrder = pinOrder.get(right.chatSessionId);
+
+    if (leftPinOrder !== undefined && rightPinOrder !== undefined) {
+      return leftPinOrder - rightPinOrder;
+    }
+    if (leftPinOrder !== undefined) return -1;
+    if (rightPinOrder !== undefined) return 1;
+    return right.lastActiveAt - left.lastActiveAt;
+  });
+}
 
 export function useSessions() {
   const [sessions, setSessions] = useState<Map<string, SessionInfo>>(() => new Map());
   const [activeSessionId, _setActiveSessionId] = useState<string | null>(
     () => localStorage.getItem(ACTIVE_SESSION_KEY),
   );
+  const [pinnedSessionIds, _setPinnedSessionIds] = useState<string[]>(() => readPinnedSessionOrder());
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const pinnedSessionIdsRef = useRef(pinnedSessionIds);
+  pinnedSessionIdsRef.current = pinnedSessionIds;
 
   const setActiveSessionId = useCallback((updater: string | null | ((prev: string | null) => string | null)) => {
     _setActiveSessionId((prev) => {
@@ -35,6 +128,43 @@ export function useSessions() {
       return next;
     });
   }, []);
+
+  const setPinnedSessionIds = useCallback((updater: string[] | ((prev: string[]) => string[])) => {
+    _setPinnedSessionIds((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if (sameSessionIdOrder(prev, next)) {
+        return prev;
+      }
+      persistPinnedSessionOrder(next);
+      return next;
+    });
+  }, []);
+
+  const syncPinnedSessionToggle = useCallback(async (chatSessionId: string, pinned: boolean) => {
+    try {
+      const resp = await fetch("/api/pinned-sessions", {
+        method: "POST",
+        headers: withAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ chatSessionId, pinned }),
+      });
+      if (!resp.ok) {
+        console.warn("[session-pin] sync failed:", resp.status);
+        return;
+      }
+      const data = await resp.json() as { pinnedSessionIds?: unknown };
+      if (Array.isArray(data.pinnedSessionIds)) {
+        setPinnedSessionIds(
+          prunePinnedSessionOrder(
+            data.pinnedSessionIds.filter((item): item is string => typeof item === "string"),
+            sessionsRef.current.keys(),
+          ),
+        );
+        return;
+      }
+    } catch (e) {
+      console.warn("[session-pin] sync failed:", e);
+    }
+  }, [setPinnedSessionIds]);
 
   const handleServerMessage = useCallback((msg: WsServerMessage) => {
     const now = Date.now();
@@ -46,10 +176,16 @@ export function useSessions() {
           s.requestStatus = s.hasPending ? "pending" : "replied";
         }
       }
+      const nextPinnedSessionIds = resolvePinnedSessionOrderFromSync(
+        msg.pinnedSessionIds,
+        pinnedSessionIdsRef.current,
+        next.keys(),
+      );
+      setPinnedSessionIds(nextPinnedSessionIds);
       setSessions(next);
       setActiveSessionId((prev) => {
         if (prev && next.has(prev)) return prev;
-        const first = [...next.values()].sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0];
+        const first = sortSessionsForSidebar([...next.values()], nextPinnedSessionIds)[0];
         return first?.chatSessionId ?? null;
       });
       return;
@@ -149,6 +285,11 @@ export function useSessions() {
       return;
     }
 
+    if (msg.type === "pinned_session_order_update") {
+      setPinnedSessionIds(prunePinnedSessionOrder(msg.pinnedSessionIds, sessionsRef.current.keys()));
+      return;
+    }
+
     if (msg.type === "tag_update") {
       setSessions((prev) => {
         const next = new Map(prev);
@@ -169,20 +310,26 @@ export function useSessions() {
         next.delete(msg.chatSessionId);
         return next;
       });
+      setPinnedSessionIds((prev) => prev.filter((chatSessionId) => chatSessionId !== msg.chatSessionId));
       setActiveSessionId((prev) => {
         if (prev !== msg.chatSessionId) return prev;
         return null;
       });
     }
-  }, []);
+  }, [setActiveSessionId, setPinnedSessionIds]);
 
   const setActiveSession = useCallback((id: string) => {
     setActiveSessionId(id);
   }, [setActiveSessionId]);
 
+  const togglePinnedSession = useCallback((chatSessionId: string) => {
+    const pinned = !pinnedSessionIdsRef.current.includes(chatSessionId);
+    void syncPinnedSessionToggle(chatSessionId, pinned);
+  }, [syncPinnedSessionToggle]);
+
   const sortedSessions = useMemo(() => {
-    return [...sessions.values()].sort((a, b) => b.lastActiveAt - a.lastActiveAt);
-  }, [sessions]);
+    return sortSessionsForSidebar([...sessions.values()], pinnedSessionIds);
+  }, [pinnedSessionIds, sessions]);
 
   const activeSession = useMemo(() => {
     if (!activeSessionId) return undefined;
@@ -198,17 +345,15 @@ export function useSessions() {
     return n;
   }, [sessions]);
 
-  // 与 state 同步，供异步回调读取最新会话映射，避免闭包陈旧
-  const sessionsRef = useRef(sessions);
-  sessionsRef.current = sessions;
-
   return {
     sessions,
     sessionsRef,
     sortedSessions,
+    pinnedSessionIds,
     activeSessionId,
     activeSession,
     setActiveSession,
+    togglePinnedSession,
     handleServerMessage,
     activeCount,
     pendingCount,

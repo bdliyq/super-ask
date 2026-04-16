@@ -12,30 +12,36 @@
 4. **遇到需要决策的问题时**，必须用 super-ask 询问用户
 5. **绝对不要**在不调用 super-ask 的情况下结束你的回合
 6. **每次调用 super-ask 必须传入 `--workspace-root`**：传入当前工作区的绝对路径（通常可通过 `pwd` 或项目根目录获取）
+7. **绝对不要**在等待 super-ask 返回时将其后台化
 
 ## chatSessionId 管理（极其重要）
 
 你必须在整个对话过程中维护 `chatSessionId`：
 
 1. **第一次调用**：不传 `chatSessionId`，Server 返回新的 `chatSessionId`
-2. **第一次调用之后的所有后续调用**：必须从上一次响应中提取 `chatSessionId` 并原样传入
-3. **保存方式**：解析 super-ask 的 JSON 响应，提取 `chatSessionId` 字段的值，在下一次调用时通过 `--session-id` 传入
-4. **如果丢失 `chatSessionId`**：不得绕过 super-ask 直接回复；先从上一次响应或可用记录找回。若找不到，继续调用 super-ask 新建会话，并明确说明“本次已新建会话，原会话可能不连续”。
+2. **收到响应后立即保存**：提取 `chatSessionId` 并执行 `export SUPER_ASK_SID='<chatSessionId值>'` 持久化到环境变量
+3. **后续调用**：通过 `--session-id "$SUPER_ASK_SID"` 传入
+4. **chatSessionId 唯一合法来源**：只使用 super-ask 命令的**直接输出**中的 chatSessionId。绝不使用从终端历史、其他命令输出、打开的文件或上下文其他部分看到的 chatSessionId
+5. **如果丢失**：直接新建会话（不传 `--session-id`），不要在上下文中搜索。新建时向用户说明"已新建会话，原会话不连续"
 
 ## 完整工作循环示例
 
 ```
 第1轮：
   Agent 执行任务 → 完成
-  Agent 在终端运行 super-ask（不带 session-id） → 获得 chatSessionId="abc123", feedback="继续做X"
+  Agent 在终端运行 super-ask（不带 --session-id）
+  → 获得 chatSessionId="abc123", feedback="继续做X"
+  → 执行 export SUPER_ASK_SID="abc123"
 
 第2轮：
   Agent 根据反馈执行 X → 完成
-  Agent 在终端运行 super-ask（带 --session-id "abc123"） → 获得 chatSessionId="abc123", feedback="好的，验收通过"
+  Agent 在终端运行 super-ask（带 --session-id "$SUPER_ASK_SID"）
+  → 获得 chatSessionId="abc123", feedback="好的，验收通过"
+  → 执行 export SUPER_ASK_SID="abc123"
 
 第3轮：
   Agent 根据反馈继续下一步 → 完成
-  Agent 在终端运行 super-ask（带 --session-id "abc123"） → 等待用户...
+  Agent 在终端运行 super-ask（带 --session-id "$SUPER_ASK_SID"） → 等待用户...
 ```
 
 **关键：对适用本规则的 agent 而言，每一轮结束时都必须调用 super-ask，形成闭环。**
@@ -59,11 +65,11 @@ python3 "{{SUPER_ASK_CLI}}" \
 - 结果：xxx' \
   --question '请确认是否继续？' \
   --title '任务标题' \
-  --session-id '<上一次响应中的chatSessionId>' \
+  --session-id "$SUPER_ASK_SID" \
   --source codex \
   --workspace-root '<当前工作区的绝对路径>' \
   --options '验收通过' '需要修改' \
-  --retries 6 \
+  --retries -1 \
   --port 19960
 ```
 
@@ -84,10 +90,12 @@ python3 "{{SUPER_ASK_CLI}}" \
 ## 重要提示
 
 - super-ask 是前台阻塞命令，Shell 工具的 `block_until_ms` 必须设为 `86400000`
+- `--retries -1` 表示对可恢复错误无限重试（每次间隔 10 秒）；`0` 表示不重试；正整数表示最多重试 N 次
 - summary 和 question 参数建议使用**单引号**包裹，支持真实换行
 - CLI 会将 `\n` 自动转为换行
 - 确保 super-ask server 已启动（运行 `bash "{{SUPER_ASK_INSTALL_SH}}"`）
 - **workspace-root 必传**：每次调用必须包含 `--workspace-root`
+- 如果你之前部署过旧版 Super Ask Codex 规则，请在 Web UI 重新部署一次；用户全局部署还会同步更新 `~/.codex/config.toml` 中的 Codex 终端超时配置
 
 ## 注意事项
 
@@ -95,7 +103,7 @@ python3 "{{SUPER_ASK_CLI}}" \
 - **禁止后台执行**：不允许在命令末尾加 `&` 或以任何方式将 super-ask 放到后台执行。必须前台同步运行并等待用户回复
 - **Server 必须运行**：若连接失败，告知用户需要先启动 super-ask server
 - **不要跳过 `super-ask`**：任何情况下都不得跳过执行 `super-ask`
-- **不要跳过 `chatSessionId`**：每次调用后提取并在下次传入
+- **不要跳过 `chatSessionId`**：每次调用 `super-ask` 后，从返回结果中提取 `chatSessionId`，执行 `export SUPER_ASK_SID='<值>'` 保存，并在下次调用时通过 `--session-id "$SUPER_ASK_SID"` 传入
 - **summary 用 Markdown**：summary 字段支持 Markdown 格式
 - **options 可选**：给出选项帮助用户快速回复
 - **source 字段**：传入 `codex` 标识来源

@@ -97,6 +97,7 @@ export class WsHub {
     const syncMsg: WsServerMessage = {
       type: "sync",
       sessions: this.sessionManager.listSessionsForSync(),
+      pinnedSessionIds: this.sessionManager.listPinnedSessionIdsForSync(),
     };
     this.send(ws, syncMsg);
   }
