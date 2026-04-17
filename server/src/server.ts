@@ -17,6 +17,7 @@ import type {
 import { SUPER_ASK_DIR } from "./config";
 import { SessionManager } from "./sessionManager";
 import { WsHub } from "./wsHub";
+import { TerminalManager } from "./terminalManager";
 import { DeployManager } from "./deployManager";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -225,6 +226,7 @@ export function startSuperAsk(
   authToken: string
 ): Promise<RunningServer> {
   let wsHub: WsHub;
+  let terminalManager: TerminalManager;
 
   // 项目根目录：server/src → 上两级到 super-ask 仓库根（含 rules/）
   const projectRoot = resolve(join(__dirname, "..", ".."));
@@ -244,6 +246,9 @@ export function startSuperAsk(
   httpServer.headersTimeout = 0;
 
   wsHub = new WsHub(sessionManager, httpServer, authToken);
+  terminalManager = new TerminalManager(sessionManager, authToken);
+  terminalManager.attachToServer(httpServer);
+  sessionManager.onSessionDeleted = (id) => terminalManager.killSession(id);
 
   /** 校验 Bearer 或 X-Super-Ask-Token，未通过则写 401 并返回 false */
   function requireAuth(req: IncomingMessage, res: ServerResponse): boolean {
@@ -897,6 +902,7 @@ export function startSuperAsk(
             close: async () => {
               sessionManager.stopIdleCleanup();
               await sessionManager.shutdownNotifyAgents();
+              await terminalManager.close();
               await new Promise<void>((r, j) => {
                 httpServer.close((err) => (err ? j(err) : r()));
               });

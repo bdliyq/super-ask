@@ -315,6 +315,23 @@ export function SessionTabs({
   const hoveredSession = hoveredId ? sessions.find((s) => s.chatSessionId === hoveredId) : null;
 
   if (collapsed) {
+    const renderMiniItem = (s: SessionInfo) => {
+      const firstChar = (s.title || "?").charAt(0).toUpperCase();
+      const isActive = s.chatSessionId === activeSessionId;
+      const hasPending = s.hasPending;
+      return (
+        <button
+          key={s.chatSessionId}
+          type="button"
+          className={`session-tabs__mini-item${isActive ? " session-tabs__mini-item--active" : ""}${hasPending ? " session-tabs__mini-item--pending" : ""}`}
+          title={s.title || t.unnamedSession}
+          onClick={() => onSelect(s.chatSessionId)}
+        >
+          {firstChar}
+        </button>
+      );
+    };
+
     return (
       <aside className="session-tabs session-tabs--mini" aria-label={t.sessionList}>
         <div className="session-tabs__mini-header">
@@ -330,22 +347,18 @@ export function SessionTabs({
           )}
         </div>
         <div className="session-tabs__mini-list">
-          {sessions.map((s) => {
-            const firstChar = (s.title || "?").charAt(0).toUpperCase();
-            const isActive = s.chatSessionId === activeSessionId;
-            const hasPending = s.hasPending;
-            return (
-              <button
-                key={s.chatSessionId}
-                type="button"
-                className={`session-tabs__mini-item${isActive ? " session-tabs__mini-item--active" : ""}${hasPending ? " session-tabs__mini-item--pending" : ""}`}
-                title={s.title || t.unnamedSession}
-                onClick={() => onSelect(s.chatSessionId)}
-              >
-                {firstChar}
-              </button>
-            );
-          })}
+          {pinnedSessions.length > 0 && (
+            <>
+              {pinnedSessions.map(renderMiniItem)}
+              {(sessionGroups.length > 0) && <hr className="session-tabs__mini-divider" />}
+            </>
+          )}
+          {sessionGroups.map((group, gi) => (
+            <React.Fragment key={group.key}>
+              {group.sessions.map(renderMiniItem)}
+              {gi < sessionGroups.length - 1 && <hr className="session-tabs__mini-divider" />}
+            </React.Fragment>
+          ))}
         </div>
       </aside>
     );

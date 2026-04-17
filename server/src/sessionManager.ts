@@ -101,6 +101,7 @@ export class SessionManager {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private shuttingDown = false;
   private startedAt = Date.now();
+  onSessionDeleted: ((chatSessionId: string) => void) | null = null;
 
   constructor(
     private config: SuperAskConfig,
@@ -345,6 +346,7 @@ export class SessionManager {
         chatSessionId: id,
       } satisfies WsSessionDeleted);
       void this.removeSessionFile(id);
+      this.onSessionDeleted?.(id);
     }
     if (toRemove.length > 0) {
       const nextPinnedSessionIds = normalizePinnedSessionIds(
@@ -865,6 +867,7 @@ export class SessionManager {
     }
 
     void this.removeSessionFile(chatSessionId);
+    this.onSessionDeleted?.(chatSessionId);
     return true;
   }
 

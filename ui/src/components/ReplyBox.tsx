@@ -39,6 +39,7 @@ interface ReplyBoxProps {
   onRemoveQuotedRef?: (index: number) => void;
   onClearQuotedRefs?: () => void;
   onSend: (text: string, attachments?: FileAttachment[]) => Promise<void>;
+  connected?: boolean;
 }
 
 const DRAFT_PREFIX = "super-ask-draft-";
@@ -104,7 +105,7 @@ function truncateText(text: string, maxLen: number): string {
   return single.length > maxLen ? single.slice(0, maxLen) + "…" : single;
 }
 
-export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [], onRemoveQueuedReply, quotedRefs = [], onRemoveQuotedRef, onClearQuotedRefs, onSend }: ReplyBoxProps) {
+export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [], onRemoveQueuedReply, quotedRefs = [], onRemoveQuotedRef, onClearQuotedRefs, onSend, connected }: ReplyBoxProps) {
   const { t, locale } = useI18n();
   const draftKey = DRAFT_PREFIX + chatSessionId;
   const [text, setText] = useState(() => {
@@ -112,6 +113,8 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
   });
   const [attachments, setAttachments] = useState<PendingFile[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [reconnectNotice, setReconnectNotice] = useState<string | null>(null);
+  const prevConnectedRef = useRef(connected);
   const [showSlash, setShowSlash] = useState(false);
   const [slashFilter, setSlashFilter] = useState("");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -134,6 +137,19 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
       localStorage.removeItem(draftKey);
     }
   }, [draftKey, text]);
+
+  useEffect(() => {
+    const wasDisconnected = prevConnectedRef.current === false;
+    prevConnectedRef.current = connected;
+
+    if (connected && wasDisconnected && uploadError) {
+      setUploadError(null);
+      const msg = locale === "zh" ? "连接已恢复" : "Connection restored";
+      setReconnectNotice(msg);
+      const timer = setTimeout(() => setReconnectNotice(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [connected, locale, uploadError]);
 
   useEffect(() => {
     if (quotedRefs.length > 0) {
@@ -457,6 +473,10 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
       {uploadError ? (
         <div className="reply-box__upload-error" role="alert">
           {uploadError}
+        </div>
+      ) : reconnectNotice ? (
+        <div className="reply-box__reconnect-notice" role="status">
+          {reconnectNotice}
         </div>
       ) : null}
 

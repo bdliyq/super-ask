@@ -242,6 +242,14 @@ body {
   background: var(--accent);
 }
 
+.session-tabs__mini-divider {
+  width: 24px;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 2px 0;
+  flex-shrink: 0;
+}
+
 /* 内容区 */
 .app__resize-handle {
   grid-column: 2;
@@ -2093,6 +2101,21 @@ body {
   border: 1px solid rgba(244, 71, 71, 0.35);
 }
 
+.reply-box__reconnect-notice {
+  font-size: 12px;
+  color: #4caf50;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(76, 175, 80, 0.12);
+  border: 1px solid rgba(76, 175, 80, 0.35);
+  animation: reply-box__fade-in 0.2s ease;
+}
+
+@keyframes reply-box__fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .reply-box__attachments {
   display: flex;
   flex-direction: column;
@@ -3048,17 +3071,16 @@ body {
 .terminal-drawer {
   width: 0;
   overflow: hidden;
-  display: flex;
+  display: none;
   flex-direction: column;
   background: #1e1e1e;
-  border-left: 1px solid transparent;
-  transition: width 0.25s ease, border-color 0.25s ease;
+  border-left: 1px solid var(--border-subtle);
   position: relative;
   flex-shrink: 0;
 }
 
 .terminal-drawer--open {
-  border-left-color: var(--border-subtle);
+  display: flex;
 }
 
 .terminal-drawer__resize-handle {
@@ -3077,10 +3099,10 @@ body {
   opacity: 0.5;
 }
 
-.terminal-drawer__close-float {
+.terminal-drawer__maximize-float {
   position: absolute;
   top: 4px;
-  right: 4px;
+  right: 20px;
   z-index: 10;
   width: 24px;
   height: 24px;
@@ -3099,7 +3121,7 @@ body {
   transition: background 0.15s, color 0.15s;
 }
 
-.terminal-drawer__close-float:hover {
+.terminal-drawer__maximize-float:hover {
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
 }

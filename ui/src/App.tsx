@@ -56,8 +56,11 @@ export default function App() {
     return localStorage.getItem(PANEL_VISIBLE_KEY) !== "false";
   });
 
-  const [terminalDrawerOpen, setTerminalDrawerOpen] = useState<boolean>(() => {
-    return localStorage.getItem("super-ask-terminal-open") === "true";
+  const [terminalOpenMap, setTerminalOpenMap] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem("super-ask-terminal-open-map");
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
   });
 
   useEffect(() => {
@@ -65,8 +68,8 @@ export default function App() {
   }, [panelVisible]);
 
   useEffect(() => {
-    localStorage.setItem("super-ask-terminal-open", String(terminalDrawerOpen));
-  }, [terminalDrawerOpen]);
+    localStorage.setItem("super-ask-terminal-open-map", JSON.stringify(terminalOpenMap));
+  }, [terminalOpenMap]);
 
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, view);
@@ -300,6 +303,7 @@ export default function App() {
             onReorderPinned={reorderPinnedSessions}
             onDelete={handleDeleteSession}
             onTogglePanel={togglePanel}
+            collapsed={!panelVisible}
           />
           <div
             className="app__resize-handle"
@@ -308,20 +312,7 @@ export default function App() {
           />
         </>
       )}
-      {/* panel 隐藏时的浮动恢复按钮 */}
-      {!isSettings && !panelVisible && (
-        <button
-          type="button"
-          className="app__panel-show-btn"
-          onClick={togglePanel}
-          aria-label="Show sidebar"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
-            <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
-            <line x1="5.5" y1="2.5" x2="5.5" y2="13.5" />
-          </svg>
-        </button>
-      )}
+      
       <main className={`app__main ${isSettings ? "app__main--full" : ""}`}>
         {isSettings ? (
           <SettingsPanel />
@@ -329,14 +320,23 @@ export default function App() {
           <ChatView
             session={activeSession}
             onSendReply={onSendReply}
+            connected={connected}
             queuedReplies={activeSessionId ? (queuedMessages.get(activeSessionId) || []) : []}
             onRemoveQueuedReply={activeSessionId ? (index: number) => onRemoveQueuedReply(activeSessionId, index) : undefined}
-            onOpenTerminal={() => setTerminalDrawerOpen((v) => !v)}
-            terminalOpen={terminalDrawerOpen}
+            onOpenTerminal={() => {
+              if (activeSessionId) {
+                setTerminalOpenMap((m) => ({ ...m, [activeSessionId]: !m[activeSessionId] }));
+              }
+            }}
+            terminalOpen={Boolean(activeSessionId && terminalOpenMap[activeSessionId])}
             terminalSlot={
               <TerminalDrawer
-                open={terminalDrawerOpen}
-                onClose={() => setTerminalDrawerOpen(false)}
+                open={Boolean(activeSessionId && terminalOpenMap[activeSessionId])}
+                onClose={() => {
+                  if (activeSessionId) {
+                    setTerminalOpenMap((m) => ({ ...m, [activeSessionId]: false }));
+                  }
+                }}
                 sessionId={activeSessionId}
                 workspaceRoot={activeSession?.workspaceRoot}
               />

@@ -18,6 +18,10 @@ interface ChatViewProps {
   ) => Promise<void>;
   queuedReplies?: QueuedReply[];
   onRemoveQueuedReply?: (index: number) => void;
+  onOpenTerminal?: () => void;
+  terminalOpen?: boolean;
+  terminalSlot?: React.ReactNode;
+  connected?: boolean;
 }
 
 /** 将 history 分组为 agent + 可选紧随的 user 交互对 */
@@ -38,13 +42,34 @@ function groupInteractions(history: HistoryEntry[]) {
   return groups;
 }
 
-export function ChatView({ session, onSendReply, queuedReplies = [], onRemoveQueuedReply }: ChatViewProps) {
+export function ChatView({
+  session,
+  onSendReply,
+  queuedReplies = [],
+  onRemoveQueuedReply,
+  onOpenTerminal,
+  terminalOpen,
+  terminalSlot,
+  connected,
+}: ChatViewProps) {
   const { t, locale } = useI18n();
   const messagesRef = useRef<HTMLDivElement>(null);
   const pinPanelRef = useRef<HTMLDivElement>(null);
   const pinToggleRef = useRef<HTMLButtonElement>(null);
   const [quotedRefs, setQuotedRefs] = useState<QuotedRef[]>([]);
-  const [showPinPanel, setShowPinPanel] = useState(false);
+  const [pinPanelSessionId, setPinPanelSessionId] = useState<string | null>(null);
+  const showPinPanel = pinPanelSessionId === session?.chatSessionId;
+  const setShowPinPanel = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
+    if (typeof v === "function") {
+      setPinPanelSessionId((cur) => {
+        const isOpen = cur === session?.chatSessionId;
+        const next = v(isOpen);
+        return next ? (session?.chatSessionId ?? null) : null;
+      });
+    } else {
+      setPinPanelSessionId(v ? (session?.chatSessionId ?? null) : null);
+    }
+  }, [session?.chatSessionId]);
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagInputValue, setTagInputValue] = useState("");
   const tagInputRef = useRef<HTMLInputElement>(null);
@@ -135,7 +160,8 @@ export function ChatView({ session, onSendReply, queuedReplies = [], onRemoveQue
       const target = e.target as Node;
       if (
         pinPanelRef.current && !pinPanelRef.current.contains(target) &&
-        pinToggleRef.current && !pinToggleRef.current.contains(target)
+        pinToggleRef.current && !pinToggleRef.current.contains(target) &&
+        !(target instanceof Element && target.closest(".terminal-drawer, .chat-view__terminal-btn"))
       ) {
         setShowPinPanel(false);
       }
@@ -240,6 +266,21 @@ export function ChatView({ session, onSendReply, queuedReplies = [], onRemoveQue
           </span>
         </div>
         <div className="chat-view__banner-right">
+          {onOpenTerminal ? (
+            <button
+              type="button"
+              className={`chat-view__terminal-btn${terminalOpen ? " chat-view__terminal-btn--active" : ""}`}
+              title={locale === "zh" ? "终端" : "Terminal"}
+              disabled={!session?.chatSessionId}
+              onClick={() => onOpenTerminal()}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="3" width="12" height="10" rx="1" />
+                <path d="M5 6l2 2-2 2" />
+                <path d="M9 10h3" />
+              </svg>
+            </button>
+          ) : null}
           <button
             ref={pinToggleRef}
             type="button"
@@ -258,42 +299,46 @@ export function ChatView({ session, onSendReply, queuedReplies = [], onRemoveQue
       </div>
       <div className="chat-view__body">
         <div className="chat-view__main">
-          <div ref={messagesRef} className="chat-view__messages" role="log" aria-live="polite" aria-relevant="additions">
-            {groupInteractions(session.history).map((g, i, arr) => {
-              const isLastPair = i === arr.length - 1;
-              const acked = g.user
-                ? isLastPair
-                  ? session.requestStatus === "acked"
-                  : true
-                : false;
-              return (
-                <div key={`${g.agent.timestamp}-${i}`} id={`interaction-${i}`} ref={(el) => { if (el) cardRefs.current.set(i, el); else cardRefs.current.delete(i); }}>
-                  <InteractionCard
-                    index={i}
-                    agentEntry={g.agent}
-                    userEntry={g.user}
-                    onQuote={(ref) => setQuotedRefs((prev) => [...prev, ref])}
-                    isPinned={pinnedSet.has(i)}
-                    onTogglePin={handleTogglePin}
-                    isAcked={acked}
-                  />
-                </div>
-              );
-            })}
+          <div className="chat-view__content-col">
+            <div ref={messagesRef} className="chat-view__messages" role="log" aria-live="polite" aria-relevant="additions">
+              {groupInteractions(session.history).map((g, i, arr) => {
+                const isLastPair = i === arr.length - 1;
+                const acked = g.user
+                  ? isLastPair
+                    ? session.requestStatus === "acked"
+                    : true
+                  : false;
+                return (
+                  <div key={`${g.agent.timestamp}-${i}`} id={`interaction-${i}`} ref={(el) => { if (el) cardRefs.current.set(i, el); else cardRefs.current.delete(i); }}>
+                    <InteractionCard
+                      index={i}
+                      agentEntry={g.agent}
+                      userEntry={g.user}
+                      onQuote={(ref) => setQuotedRefs((prev) => [...prev, ref])}
+                      isPinned={pinnedSet.has(i)}
+                      onTogglePin={handleTogglePin}
+                      isAcked={acked}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <ReplyBox
+              hasPending={session.hasPending}
+              chatSessionId={session.chatSessionId}
+              options={options}
+              queuedReplies={queuedReplies}
+              onRemoveQueuedReply={onRemoveQueuedReply}
+              quotedRefs={quotedRefs}
+              onRemoveQuotedRef={(idx) => setQuotedRefs((prev) => prev.filter((_, i) => i !== idx))}
+              onClearQuotedRefs={() => setQuotedRefs([])}
+              onSend={async (feedback, attachments) =>
+                onSendReply(session.chatSessionId, feedback, attachments)
+              }
+              connected={connected}
+            />
           </div>
-          <ReplyBox
-            hasPending={session.hasPending}
-            chatSessionId={session.chatSessionId}
-            options={options}
-            queuedReplies={queuedReplies}
-            onRemoveQueuedReply={onRemoveQueuedReply}
-            quotedRefs={quotedRefs}
-            onRemoveQuotedRef={(idx) => setQuotedRefs((prev) => prev.filter((_, i) => i !== idx))}
-            onClearQuotedRefs={() => setQuotedRefs([])}
-            onSend={async (feedback, attachments) =>
-              onSendReply(session.chatSessionId, feedback, attachments)
-            }
-          />
+          {terminalSlot}
         </div>
         {showPinPanel && (session.pinnedIndices?.length ?? 0) > 0 && (
           <div ref={pinPanelRef} className="chat-view__pin-panel">

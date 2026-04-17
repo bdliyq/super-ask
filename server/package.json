@@ -2,19 +2,23 @@
   "name": "super-ask",
   "version": "0.1.0",
   "type": "module",
-  "bin": { "super-ask": "dist/index.js" },
+  "bin": {
+    "super-ask": "dist/index.js"
+  },
   "scripts": {
+    "postinstall": "node -e \"const{readdirSync,chmodSync,statSync}=require('fs'),{join}=require('path');const d=join(__dirname,'node_modules/node-pty/prebuilds');try{for(const p of readdirSync(d)){const h=join(d,p,'spawn-helper');try{if(statSync(h).isFile()){chmodSync(h,0o755)}}catch{}}}catch{}\"",
     "build": "tsup src/index.ts --format esm --dts",
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "node-pty": "^1.1.0",
     "ws": "^8.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "tsx": "^4.0.0",
-    "tsup": "^8.0.0",
     "@types/node": "^20.0.0",
-    "@types/ws": "^8.0.0"
+    "@types/ws": "^8.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
   }
 }

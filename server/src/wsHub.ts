@@ -32,7 +32,6 @@ export class WsHub {
     httpServer.on("upgrade", (req, socket, head) => {
       const path = this.getPathname(req);
       if (path !== "/ws") {
-        socket.destroy();
         return;
       }
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
