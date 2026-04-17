@@ -1871,6 +1871,20 @@ body {
   cursor: pointer;
 }
 
+.markdown-body code.clickable-path {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.markdown-body code.clickable-path:hover {
+  background: var(--accent);
+  color: #fff;
+  text-decoration-style: solid;
+}
+
 .markdown-body blockquote {
   margin: 0.5em 0;
   padding: 0.4em 12px;

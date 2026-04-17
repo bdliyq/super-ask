@@ -38,7 +38,24 @@ function extractMermaidSource(children: ReactNode): string | null {
 
 const URL_RE = /^https?:\/\/\S+$/;
 
-function createMarkdownComponents(linkRel: string): Components {
+const ABS_UNIX_RE = /^\/(?:[\w.@+-]+\/)*[\w.@+-]+(?:\.\w+)?$/;
+const TILDE_RE = /^~\/(?:[\w.@+-]+\/)*[\w.@+-]+(?:\.\w+)?$/;
+const EXPLICIT_REL_RE = /^\.\.?\/(?:[\w.@+-]+\/)*[\w.@+-]+(?:\.\w+)?$/;
+const IMPLICIT_REL_RE = /^(?:[\w@-]+\/)+[\w.@+-]+\.\w+$/;
+
+function isFilePath(text: string): boolean {
+  return (
+    ABS_UNIX_RE.test(text) ||
+    TILDE_RE.test(text) ||
+    EXPLICIT_REL_RE.test(text) ||
+    IMPLICIT_REL_RE.test(text)
+  );
+}
+
+function createMarkdownComponents(
+  linkRel: string,
+  onOpenPath?: (path: string) => void,
+): Components {
   return {
     a({ node: _node, ...props }) {
       return <a {...props} target="_blank" rel={linkRel} />;
@@ -52,6 +69,23 @@ function createMarkdownComponents(linkRel: string): Components {
               <a href={text} target="_blank" rel={linkRel}>
                 {children}
               </a>
+            </code>
+          );
+        }
+        if (onOpenPath && isFilePath(text)) {
+          return (
+            <code
+              {...props}
+              className="clickable-path"
+              title={text}
+              role="button"
+              tabIndex={0}
+              onClick={() => onOpenPath(text)}
+              onKeyDown={(e: React.KeyboardEvent) => {
+                if (e.key === "Enter" || e.key === " ") onOpenPath(text);
+              }}
+            >
+              {children}
             </code>
           );
         }
@@ -71,11 +105,16 @@ function createMarkdownComponents(linkRel: string): Components {
 export function MarkdownContent({
   source,
   linkRel = "noopener noreferrer",
+  onOpenPath,
 }: {
   source: string;
   linkRel?: string;
+  onOpenPath?: (path: string) => void;
 }) {
-  const components = useMemo(() => createMarkdownComponents(linkRel), [linkRel]);
+  const components = useMemo(
+    () => createMarkdownComponents(linkRel, onOpenPath),
+    [linkRel, onOpenPath],
+  );
 
   return (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>

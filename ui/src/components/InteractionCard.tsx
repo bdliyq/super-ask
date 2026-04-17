@@ -76,6 +76,7 @@ export interface InteractionCardProps {
   isPinned?: boolean;
   onTogglePin?: (index: number) => void;
   isAcked?: boolean;
+  onOpenPath?: (path: string) => void;
 }
 
 type EntryStatusKind = "pending" | "done" | "cancelled";
@@ -97,7 +98,7 @@ function QuoteButton({ onClick, title, variant }: { onClick: () => void; title: 
   );
 }
 
-export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinned, onTogglePin, isAcked }: InteractionCardProps) {
+export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinned, onTogglePin, isAcked, onOpenPath }: InteractionCardProps) {
   const { t } = useI18n();
   const statusKind = getEntryStatus(userEntry);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -203,7 +204,7 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
                 </div>
               </div>
               <div className="summary-card__text markdown-body">
-                <MarkdownContent source={agentEntry.summary} />
+                <MarkdownContent source={agentEntry.summary} onOpenPath={onOpenPath} />
               </div>
             </div>
           ) : null}
@@ -222,7 +223,7 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
                 </div>
               </div>
               <div className="question-text markdown-body">
-                <MarkdownContent source={agentEntry.question} />
+                <MarkdownContent source={agentEntry.question} onOpenPath={onOpenPath} />
               </div>
             </div>
           ) : null}
@@ -244,7 +245,7 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
               </div>
               {feedbackMd ? (
                 <div className="feedback-record-text markdown-body">
-                  <MarkdownContent source={formatFeedbackMarkdown(userEntry.feedback ?? "")} />
+                  <MarkdownContent source={formatFeedbackMarkdown(userEntry.feedback ?? "")} onOpenPath={onOpenPath} />
                 </div>
               ) : null}
               {userEntry.attachments && userEntry.attachments.length > 0 ? (

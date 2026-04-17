@@ -4,13 +4,15 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { homedir } from "node:os";
 import type {
   AskRequest,
   DeployRequest,
   DeployScope,
   FileAttachment,
   HealthResponse,
+  OpenPathRequest,
   SuperAskConfig,
   UndeployRequest,
 } from "../../shared/types";
@@ -270,6 +272,46 @@ export function startSuperAsk(
       })
     );
     return false;
+  }
+
+  function resolveOpenPath(rawPath: string, workspaceRoot?: string): string {
+    let resolved: string;
+    if (rawPath.startsWith("~/") || rawPath === "~") {
+      resolved = resolve(homedir(), rawPath.slice(2));
+    } else if (rawPath.startsWith("/") || /^[A-Za-z]:\\/.test(rawPath)) {
+      resolved = resolve(rawPath);
+    } else {
+      if (!workspaceRoot) throw new Error("MISSING_WORKSPACE_ROOT");
+      resolved = resolve(workspaceRoot, rawPath);
+    }
+    if (resolved.includes("\0")) throw new Error("INVALID_PATH");
+    return resolved;
+  }
+
+  async function openInFileManager(
+    targetPath: string,
+  ): Promise<{ type: "file" | "directory" }> {
+    const st = await stat(targetPath);
+    const isDir = st.isDirectory();
+    const platform = process.platform;
+    let cmd: string;
+    let args: string[];
+    if (platform === "darwin") {
+      cmd = "open";
+      args = isDir ? [targetPath] : ["-R", targetPath];
+    } else if (platform === "win32") {
+      cmd = "explorer";
+      args = isDir ? [targetPath] : ["/select,", targetPath];
+    } else {
+      cmd = "xdg-open";
+      args = isDir ? [targetPath] : [dirname(targetPath)];
+    }
+    return new Promise((res, rej) => {
+      execFile(cmd, args, { timeout: 5000 }, (err) => {
+        if (err && platform !== "win32") rej(err);
+        else res({ type: isDir ? "directory" : "file" });
+      });
+    });
   }
 
   async function handleHttp(
@@ -627,6 +669,55 @@ export function startSuperAsk(
           pinnedSessionIds: sessionManager.listPinnedSessionIdsForSync(),
         })
       );
+      return;
+    }
+
+    // POST /api/open-path — 用系统文件管理器打开路径
+    if (method === "POST" && pathname === "/api/open-path") {
+      if (!requireAuth(req, res)) return;
+      let body: unknown;
+      try {
+        body = await readJsonBody(req, 4096);
+      } catch {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "无效请求体" }));
+        return;
+      }
+      const { path: rawPath, workspaceRoot } = (body ?? {}) as Partial<OpenPathRequest>;
+      if (typeof rawPath !== "string" || !rawPath.trim()) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "path 字段必填" }));
+        return;
+      }
+      let resolved: string;
+      try {
+        resolved = resolveOpenPath(
+          rawPath.trim(),
+          typeof workspaceRoot === "string" ? workspaceRoot.trim() : undefined,
+        );
+      } catch (e: unknown) {
+        const code = e instanceof Error ? e.message : "INVALID_PATH";
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(
+          JSON.stringify({
+            error: code === "MISSING_WORKSPACE_ROOT" ? "相对路径需要 workspaceRoot" : "无效路径",
+          }),
+        );
+        return;
+      }
+      try {
+        const result = await openInFileManager(resolved);
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ success: true, resolvedPath: resolved, type: result.type }));
+      } catch {
+        res.statusCode = 404;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "路径不存在或无法打开" }));
+      }
       return;
     }
 

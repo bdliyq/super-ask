@@ -133,6 +133,22 @@ export function ChatView({
     }
   }, [tagInputValue, handleAddTag]);
 
+  const handleOpenPath = useCallback(async (rawPath: string) => {
+    try {
+      const res = await fetch("/api/open-path", {
+        method: "POST",
+        headers: withAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ path: rawPath, workspaceRoot: session?.workspaceRoot }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.warn("[open-path]", data.error || res.statusText);
+      }
+    } catch (err) {
+      console.warn("[open-path]", err);
+    }
+  }, [session?.workspaceRoot]);
+
   useEffect(() => {
     if (showTagInput) {
       tagInputRef.current?.focus();
@@ -318,6 +334,7 @@ export function ChatView({
                       isPinned={pinnedSet.has(i)}
                       onTogglePin={handleTogglePin}
                       isAcked={acked}
+                      onOpenPath={handleOpenPath}
                     />
                   </div>
                 );

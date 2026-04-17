@@ -238,3 +238,14 @@ export interface DeployStatusResponse {
     rulesFiles: string[];
   }[];
 }
+
+export interface OpenPathRequest {
+  path: string;
+  workspaceRoot?: string;
+}
+
+export interface OpenPathResponse {
+  success: boolean;
+  resolvedPath: string;
+  type: "file" | "directory";
+}
