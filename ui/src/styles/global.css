@@ -156,37 +156,88 @@ body {
   background: rgba(255, 255, 255, 0.22);
 }
 
-/* panel 隐藏时的浮动展开按钮：左下角，status bar 上方 */
-.app__panel-show-btn {
-  position: fixed;
-  bottom: calc(var(--status-height) + 6px);
-  left: 4px;
-  z-index: 30;
-  display: inline-flex;
+/* === 迷你侧栏（collapsed 模式） === */
+.session-tabs--mini {
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  background: var(--bg-elevated);
-  color: var(--text-muted);
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-  transition: opacity 0.15s, background 0.12s, color 0.12s, border-color 0.12s;
-  opacity: 0.7;
+  padding: 0;
+  overflow: hidden;
 }
 
-.app__panel-show-btn:hover {
-  opacity: 1;
+.session-tabs--mini .session-tabs__banner,
+.session-tabs--mini .session-tabs__list {
+  display: none;
+}
+
+.session-tabs__mini-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 0;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  width: 100%;
+}
+
+.session-tabs__mini-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+  width: 100%;
+}
+
+.session-tabs__mini-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.session-tabs__mini-item:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+.session-tabs__mini-item--active {
+  background: var(--accent);
+  color: #fff;
   border-color: var(--accent);
 }
 
-.app__panel-show-btn svg {
-  width: 16px;
-  height: 16px;
+.session-tabs__mini-item--active:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.session-tabs__mini-item--pending {
+  position: relative;
+}
+
+.session-tabs__mini-item--pending::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 /* 内容区 */
@@ -227,16 +278,22 @@ body {
   border-left: none;
 }
 
-/* settings 模式 / panel隐藏：隐藏会话列表和分割线 */
+/* settings 模式：隐藏会话列表和分割线 */
 .app--settings .session-tabs,
-.app--settings .app__resize-handle,
-.app--panel-hidden .session-tabs,
+.app--settings .app__resize-handle {
+  display: none;
+}
+
+/* panel 隐藏时：显示迷你侧栏 */
+.app--panel-hidden {
+  grid-template-columns: 44px 0px 1fr;
+}
+
 .app--panel-hidden .app__resize-handle {
   display: none;
 }
 
 .app--panel-hidden .app__main {
-  grid-column: 1 / -1;
   border-left: none;
 }
 
@@ -586,30 +643,30 @@ body {
 .session-tabs__group-toggle--pinned-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 4px;
+  padding: 4px 12px 2px;
   font-size: 11px;
   font-weight: 600;
   color: var(--accent);
-  text-transform: uppercase;
   letter-spacing: 0.3px;
   cursor: default;
 }
 
-/* Drag handle */
+/* Drag handle — hidden by default, revealed on hover */
 .session-tabs__drag-handle {
   cursor: grab;
-  opacity: 0;
-  font-size: 12px;
+  display: none;
+  font-size: 11px;
   line-height: 1;
   color: var(--text-muted);
   user-select: none;
   flex-shrink: 0;
-  transition: opacity 0.15s;
+  margin-left: -2px;
+  margin-right: -4px;
 }
 
-.session-tabs__item:hover .session-tabs__drag-handle,
-.session-tabs__item--active .session-tabs__drag-handle {
+.session-tabs__item:hover .session-tabs__drag-handle {
+  display: inline;
   opacity: 0.5;
 }
 
