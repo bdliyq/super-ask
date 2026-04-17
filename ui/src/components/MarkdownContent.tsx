@@ -41,14 +41,16 @@ const URL_RE = /^https?:\/\/\S+$/;
 const ABS_UNIX_RE = /^\/(?:[\w.@+-]+\/)*[\w.@+-]+(?:\.\w+)?$/;
 const TILDE_RE = /^~\/(?:[\w.@+-]+\/)*[\w.@+-]+(?:\.\w+)?$/;
 const EXPLICIT_REL_RE = /^\.\.?\/(?:[\w.@+-]+\/)*[\w.@+-]+(?:\.\w+)?$/;
-const IMPLICIT_REL_RE = /^(?:[\w@-]+\/)+[\w.@+-]+\.\w+$/;
+const IMPLICIT_REL_RE = /^(?:[\w.@+-]+\/)+[\w.@+-]+\.\w+$/;
+const BARE_FILE_RE = /^[\w@+-][\w.@+-]*\.\w+$/;
 
 function isFilePath(text: string): boolean {
   return (
     ABS_UNIX_RE.test(text) ||
     TILDE_RE.test(text) ||
     EXPLICIT_REL_RE.test(text) ||
-    IMPLICIT_REL_RE.test(text)
+    IMPLICIT_REL_RE.test(text) ||
+    BARE_FILE_RE.test(text)
   );
 }
 
