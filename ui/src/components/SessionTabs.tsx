@@ -137,6 +137,7 @@ interface SessionTabsProps {
   onReorderPinned?: (newOrder: string[]) => void;
   onDelete: (id: string) => void;
   onTogglePanel?: () => void;
+  collapsed?: boolean;
 }
 
 export function SessionTabs({
@@ -148,6 +149,7 @@ export function SessionTabs({
   onReorderPinned,
   onDelete,
   onTogglePanel,
+  collapsed = false,
 }: SessionTabsProps) {
   const { t, locale } = useI18n();
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -155,6 +157,7 @@ export function SessionTabs({
   const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [collapsedGroups, setCollapsedGroups] = useState<Partial<Record<SessionGroupKey, boolean>>>({});
   const [visibleCountsByGroup, setVisibleCountsByGroup] = useState<Partial<Record<SessionGroupKey, number>>>({});
+  const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const dragSrcIdRef = useRef<string | null>(null);
   const pinnedSet = useMemo(() => new Set(pinnedSessionIds), [pinnedSessionIds]);
@@ -311,6 +314,43 @@ export function SessionTabs({
 
   const hoveredSession = hoveredId ? sessions.find((s) => s.chatSessionId === hoveredId) : null;
 
+  if (collapsed) {
+    return (
+      <aside className="session-tabs session-tabs--mini" aria-label={t.sessionList}>
+        <div className="session-tabs__mini-header">
+          {onTogglePanel && (
+            <button
+              type="button"
+              className="session-tabs__toggle"
+              onClick={onTogglePanel}
+              aria-label={t.toggleSidebar}
+            >
+              <SidebarIcon />
+            </button>
+          )}
+        </div>
+        <div className="session-tabs__mini-list">
+          {sessions.map((s) => {
+            const firstChar = (s.title || "?").charAt(0).toUpperCase();
+            const isActive = s.chatSessionId === activeSessionId;
+            const hasPending = s.hasPending;
+            return (
+              <button
+                key={s.chatSessionId}
+                type="button"
+                className={`session-tabs__mini-item${isActive ? " session-tabs__mini-item--active" : ""}${hasPending ? " session-tabs__mini-item--pending" : ""}`}
+                title={s.title || t.unnamedSession}
+                onClick={() => onSelect(s.chatSessionId)}
+              >
+                {firstChar}
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside className="session-tabs" aria-label={t.sessionList}>
       <div className="session-tabs__banner">
@@ -333,11 +373,23 @@ export function SessionTabs({
           <>
           {pinnedSessions.length > 0 && (
             <section className="session-tabs__group session-tabs__group--pinned">
-              <div className="session-tabs__group-toggle session-tabs__group-toggle--pinned-header">
+              <button
+                type="button"
+                className="session-tabs__group-toggle session-tabs__group-toggle--pinned-header"
+                aria-expanded={!pinnedCollapsed}
+                onClick={() => setPinnedCollapsed((v) => !v)}
+              >
+                <span
+                  className={`session-tabs__group-caret${pinnedCollapsed ? " session-tabs__group-caret--collapsed" : ""}`}
+                  aria-hidden
+                >
+                  ▾
+                </span>
                 <PinIcon filled />
                 <span className="session-tabs__group-title">{t.pin}</span>
                 <span className="session-tabs__group-count">{pinnedSessions.length}</span>
-              </div>
+              </button>
+              {!pinnedCollapsed && (
               <div className="session-tabs__group-list">
                 {pinnedSessions.map((s) => {
                   const selected = s.chatSessionId === activeSessionId;
@@ -401,6 +453,7 @@ export function SessionTabs({
                   );
                 })}
               </div>
+              )}
             </section>
           )}
           {sessionGroups.map((group) => {
