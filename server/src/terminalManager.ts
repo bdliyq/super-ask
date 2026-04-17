@@ -12,11 +12,14 @@ const MAX_TERMINALS = 100;
 const IDLE_MS = 24 * 60 * 60 * 1000;
 const IDLE_CHECK_MS = 5 * 60_000;
 const SCROLLBACK_BYTES = 512 * 1024;
+const HEARTBEAT_MS = 15_000;
+const TERMINAL_DEBUG_PREFIX = "[terminal-debug]";
 
 type PtyEntry = {
   pty: IPty;
   sessionId: string;
   ws: WebSocket | null;
+  wsAlive: boolean;
   scrollback: string[];
   scrollbackLen: number;
   lastActivity: number;
@@ -66,6 +69,7 @@ export class TerminalManager {
   private httpServer: Server | null = null;
   private readonly onUpgradeBound: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
   private idleTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly sessionManager: SessionManager,
@@ -83,6 +87,26 @@ export class TerminalManager {
     httpServer.on("upgrade", this.onUpgradeBound);
     this.idleTimer = setInterval(() => this.reapIdle(), IDLE_CHECK_MS);
     this.idleTimer.unref?.();
+    this.heartbeatTimer = setInterval(() => this.pingAll(), HEARTBEAT_MS);
+    this.heartbeatTimer.unref?.();
+  }
+
+  private pingAll(): void {
+    for (const entry of this.pool.values()) {
+      const ws = entry.ws;
+      if (!ws || ws.readyState !== WebSocket.OPEN) continue;
+      if (!entry.wsAlive) {
+        console.warn(TERMINAL_DEBUG_PREFIX, "heartbeat terminate", {
+          sessionId: entry.sessionId,
+          scrollbackLen: entry.scrollbackLen,
+        });
+        try { ws.terminate(); } catch { /* ignore */ }
+        entry.ws = null;
+        continue;
+      }
+      entry.wsAlive = false;
+      try { ws.ping(); } catch { /* ignore */ }
+    }
   }
 
   private reapIdle(): void {
@@ -146,6 +170,13 @@ export class TerminalManager {
 
     const existing = this.pool.get(sessionId);
     if (existing && !existing.exited) {
+      console.info(TERMINAL_DEBUG_PREFIX, "reattach existing session", {
+        sessionId,
+        cols,
+        rows,
+        scrollbackLen: existing.scrollbackLen,
+        scrollbackChunks: existing.scrollback.length,
+      });
       if (existing.ws) {
         try { existing.ws.close(1000); } catch { /* ignore */ }
         existing.ws = null;
@@ -191,6 +222,13 @@ export class TerminalManager {
 
     if (entry.scrollback.length > 0) {
       const replay = entry.scrollback.join("");
+      console.info(TERMINAL_DEBUG_PREFIX, "replay scrollback", {
+        sessionId: entry.sessionId,
+        replayBytes: replay.length,
+        scrollbackChunks: entry.scrollback.length,
+        cols,
+        rows,
+      });
       try { ws.send(replay); } catch { /* ignore */ }
     }
 
@@ -200,6 +238,12 @@ export class TerminalManager {
   }
 
   private spawnAndAttach(ws: WebSocket, sessionId: string, cwd: string, cols: number, rows: number): void {
+    console.info(TERMINAL_DEBUG_PREFIX, "spawn session", {
+      sessionId,
+      cwd,
+      cols,
+      rows,
+    });
     const shell = defaultShell();
     const cleanEnv: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) {
@@ -221,7 +265,7 @@ export class TerminalManager {
     }
 
     const entry: PtyEntry = {
-      pty: ptyProc, sessionId, ws,
+      pty: ptyProc, sessionId, ws, wsAlive: true,
       scrollback: [], scrollbackLen: 0,
       lastActivity: Date.now(),
       exited: false, exitCode: 0,
@@ -231,8 +275,13 @@ export class TerminalManager {
     ptyProc.onData((data) => {
       entry.lastActivity = Date.now();
       this.pushScrollback(entry, data);
-      if (entry.ws?.readyState === WebSocket.OPEN) {
-        try { entry.ws.send(data); } catch { /* ignore */ }
+      const w = entry.ws;
+      if (w?.readyState === WebSocket.OPEN) {
+        try {
+          w.send(data, (err) => {
+            if (err) { try { w.terminate(); } catch { /* ignore */ } }
+          });
+        } catch { /* ignore */ }
       }
     });
 
@@ -250,6 +299,9 @@ export class TerminalManager {
   }
 
   private bindWsEvents(entry: PtyEntry, ws: WebSocket): void {
+    entry.wsAlive = true;
+    ws.on("pong", () => { entry.wsAlive = true; });
+
     const onMessage = (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
       if (entry.exited) return;
       entry.lastActivity = Date.now();
@@ -281,19 +333,35 @@ export class TerminalManager {
       try { entry.pty.write(text); } catch { /* ignore */ }
     };
 
-    const onClose = () => {
+    const onClose = (code?: number, reason?: Buffer) => {
+      console.warn(TERMINAL_DEBUG_PREFIX, "ws close", {
+        sessionId: entry.sessionId,
+        code: code ?? null,
+        reason: reason?.toString("utf8") ?? "",
+        scrollbackLen: entry.scrollbackLen,
+        exited: entry.exited,
+      });
       ws.off("message", onMessage);
       ws.off("close", onClose);
-      ws.off("error", onClose);
+      ws.off("error", onError);
       if (entry.ws === ws) entry.ws = null;
+    };
+
+    const onError = (error: Error) => {
+      console.error(TERMINAL_DEBUG_PREFIX, "ws error", {
+        sessionId: entry.sessionId,
+        message: error.message,
+      });
+      onClose();
     };
 
     ws.on("message", onMessage);
     ws.on("close", onClose);
-    ws.on("error", onClose);
+    ws.on("error", onError);
   }
 
   async close(): Promise<void> {
+    if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
     if (this.idleTimer) { clearInterval(this.idleTimer); this.idleTimer = null; }
     if (this.httpServer) { this.httpServer.off("upgrade", this.onUpgradeBound); this.httpServer = null; }
     this.wss = null;

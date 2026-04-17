@@ -91,7 +91,11 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
   }, []);
 
   const write = useCallback((data: string) => {
-    terminalRef.current?.write(data);
+    try {
+      terminalRef.current?.write(data);
+    } catch (err) {
+      console.error("[xterm] write error:", err);
+    }
   }, []);
 
   const focus = useCallback(() => {

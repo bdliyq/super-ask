@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import { DEFAULT_CONFIG } from "@shared/types";
 import { getAuthToken } from "../auth";
 
+const TERMINAL_DEBUG_PREFIX = "[terminal-debug]";
+
 export interface UseTerminalWsOptions {
   sessionId: string | null;
   workspaceRoot?: string;
@@ -61,15 +63,30 @@ export function useTerminalWs(options: UseTerminalWsOptions): UseTerminalWsRetur
 
   const send = useCallback((data: string) => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.warn(TERMINAL_DEBUG_PREFIX, "drop input while socket not open", {
+        sessionId,
+        readyState: ws?.readyState ?? null,
+        size: data.length,
+      });
+      return;
+    }
     ws.send(data);
-  }, []);
+  }, [sessionId]);
 
   const sendResize = useCallback((cols: number, rows: number) => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.warn(TERMINAL_DEBUG_PREFIX, "drop resize while socket not open", {
+        sessionId,
+        readyState: ws?.readyState ?? null,
+        cols,
+        rows,
+      });
+      return;
+    }
     ws.send(JSON.stringify({ type: "resize", cols, rows }));
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -77,6 +94,12 @@ export function useTerminalWs(options: UseTerminalWsOptions): UseTerminalWsRetur
   }, []);
 
   useEffect(() => {
+    console.info(TERMINAL_DEBUG_PREFIX, "effect start", {
+      sessionId,
+      workspaceRoot,
+      active,
+      port,
+    });
     if (reconnectTimer.current) {
       clearTimeout(reconnectTimer.current);
       reconnectTimer.current = null;
@@ -100,6 +123,7 @@ export function useTerminalWs(options: UseTerminalWsOptions): UseTerminalWsRetur
     }
 
     let cancelled = false;
+    console.info(TERMINAL_DEBUG_PREFIX, "session change clear", { sessionId });
     onSessionChange.current?.();
     reconnectCount.current = 0;
 
@@ -110,6 +134,7 @@ export function useTerminalWs(options: UseTerminalWsOptions): UseTerminalWsRetur
       setConnected(false);
 
       const url = buildTerminalWsUrl(port, token!, sessionId!, 80, 24, workspaceRoot);
+      console.info(TERMINAL_DEBUG_PREFIX, "connect", { sessionId, url });
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
@@ -118,6 +143,7 @@ export function useTerminalWs(options: UseTerminalWsOptions): UseTerminalWsRetur
         reconnectCount.current = 0;
         setConnected(true);
         setError(null);
+        console.info(TERMINAL_DEBUG_PREFIX, "open", { sessionId });
       };
 
       ws.onmessage = (ev) => {
@@ -131,13 +157,19 @@ export function useTerminalWs(options: UseTerminalWsOptions): UseTerminalWsRetur
       function handleMsg(raw: string) {
         if (raw.startsWith("{")) {
           try {
-            const o = JSON.parse(raw) as { type?: string; message?: string };
+            const o = JSON.parse(raw) as { type?: string; message?: string; code?: number };
             if (o.type === "error") {
+              console.error("[terminal-ws] server error:", o.message);
               setError(typeof o.message === "string" ? o.message : "Terminal error");
               return;
             }
             if (o.type === "exit") {
-              onOutput.current?.("\r\n\x1b[33m[Process exited, reconnecting…]\x1b[0m\r\n");
+              console.warn("[terminal-ws] process exited, code:", o.code);
+              console.warn(TERMINAL_DEBUG_PREFIX, "process exit event", {
+                sessionId,
+                code: o.code ?? null,
+              });
+              onOutput.current?.(`\r\n\x1b[33m[Process exited (code=${o.code ?? "?"}), reconnecting…]\x1b[0m\r\n`);
               scheduleReconnect();
               return;
             }
@@ -146,17 +178,27 @@ export function useTerminalWs(options: UseTerminalWsOptions): UseTerminalWsRetur
         onOutput.current?.(raw);
       }
 
-      ws.onerror = () => {
+      ws.onerror = (ev) => {
         if (cancelled) return;
         setConnected(false);
+        console.error("[terminal-ws] error", ev);
+        console.error(TERMINAL_DEBUG_PREFIX, "socket error", { sessionId });
+        onOutput.current?.("\r\n\x1b[31m[WS error]\x1b[0m\r\n");
       };
 
       ws.onclose = (ev) => {
         if (cancelled) return;
         if (wsRef.current === ws) wsRef.current = null;
         setConnected(false);
+        console.warn("[terminal-ws] closed", ev.code, ev.reason);
+        console.warn(TERMINAL_DEBUG_PREFIX, "socket close", {
+          sessionId,
+          code: ev.code,
+          reason: ev.reason,
+          wasClean: ev.wasClean,
+        });
         if (ev.code !== 1000 && ev.code !== 1001) {
-          onOutput.current?.("\r\n\x1b[33m[Connection lost, reconnecting…]\x1b[0m\r\n");
+          onOutput.current?.(`\r\n\x1b[33m[Connection lost (code=${ev.code}), reconnecting…]\x1b[0m\r\n`);
           scheduleReconnect();
         }
       };
@@ -167,6 +209,11 @@ export function useTerminalWs(options: UseTerminalWsOptions): UseTerminalWsRetur
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, reconnectCount.current), RECONNECT_MAX_MS);
       reconnectCount.current++;
+      console.info(TERMINAL_DEBUG_PREFIX, "schedule reconnect", {
+        sessionId,
+        attempt: reconnectCount.current,
+        delay,
+      });
       reconnectTimer.current = setTimeout(() => {
         reconnectTimer.current = null;
         connect();
@@ -187,6 +234,7 @@ export function useTerminalWs(options: UseTerminalWsOptions): UseTerminalWsRetur
         ws.onmessage = null;
         ws.onerror = null;
         ws.onclose = null;
+        console.info(TERMINAL_DEBUG_PREFIX, "cleanup close", { sessionId });
         ws.close(1000);
         wsRef.current = null;
       }

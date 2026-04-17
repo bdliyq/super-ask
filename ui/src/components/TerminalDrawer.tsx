@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { useTerminal } from "../hooks/useTerminal";
 import { useTerminalWs } from "../hooks/useTerminalWs";
+import { useI18n } from "../i18n";
 
 const WIDTH_MAP_KEY = "super-ask-terminal-width-map";
 const MAX_MAP_KEY = "super-ask-terminal-maximized-map";
@@ -22,7 +23,6 @@ function saveMap<T>(key: string, map: Record<string, T>): void {
 
 export interface TerminalDrawerProps {
   open: boolean;
-  onClose: () => void;
   sessionId: string | null;
   workspaceRoot?: string;
 }
@@ -76,9 +76,7 @@ function TerminalDrawerCore({ sessionId, workspaceRoot, visible }: TerminalDrawe
 }
 
 export function TerminalDrawer({ open, sessionId, workspaceRoot }: TerminalDrawerProps) {
-  const hasOpened = useRef(false);
-  if (open) hasOpened.current = true;
-
+  const { locale } = useI18n();
   const sid = sessionId ?? "";
 
   const [maximized, setMaximized] = useState<boolean>(() => {
@@ -169,28 +167,38 @@ export function TerminalDrawer({ open, sessionId, workspaceRoot }: TerminalDrawe
       aria-hidden={!open}
     >
       {!maximized && <div className="terminal-drawer__resize-handle" onMouseDown={onResizeStart} />}
-      <button
-        type="button"
-        className="terminal-drawer__maximize-float"
-        onClick={toggleMaximize}
-        aria-label={maximized ? "Exit fullscreen" : "Fullscreen"}
-      >
-        {maximized ? (
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="4 10 1 10 1 15 6 15 6 12" />
-            <polyline points="12 6 15 6 15 1 10 1 10 4" />
-          </svg>
-        ) : (
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="10 2 14 2 14 6" />
-            <polyline points="6 14 2 14 2 10" />
-            <line x1="14" y1="2" x2="9" y2="7" />
-            <line x1="2" y1="14" x2="7" y2="9" />
-          </svg>
-        )}
-      </button>
-      {hasOpened.current ? (
-        <TerminalDrawerCore sessionId={sessionId} workspaceRoot={workspaceRoot} visible={open} />
+      <div className="terminal-drawer__banner">
+        <span className="terminal-drawer__banner-title">
+          {locale === "zh" ? "终端" : "Terminal"}
+        </span>
+        <div className="terminal-drawer__banner-actions">
+          <button
+            type="button"
+            className="terminal-drawer__banner-btn"
+            onClick={toggleMaximize}
+            title={maximized
+              ? (locale === "zh" ? "退出全屏" : "Exit fullscreen")
+              : (locale === "zh" ? "全屏" : "Fullscreen")}
+          >
+            {maximized ? (
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 1v3H1M12 1v3h3M4 15v-3H1M12 15v-3h3" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 5V1h4M11 1h4v4M1 11v4h4M15 11v4h-4" />
+              </svg>
+            )}
+          </button>
+        </div>
+      </div>
+      {sessionId ? (
+        <TerminalDrawerCore
+          key={sessionId}
+          sessionId={sessionId}
+          workspaceRoot={workspaceRoot}
+          visible={open}
+        />
       ) : null}
     </aside>
   );
