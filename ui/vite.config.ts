@@ -8,6 +8,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Vite 配置：React、@shared 别名、开发代理到 super-ask Server、构建输出到 server 静态目录
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    // Guard against xterm 6.0.0's already-minified ESM being re-processed in toolchain paths.
+    exclude: ["@xterm/xterm"],
+  },
   resolve: {
     alias: {
       // 与 tsconfig paths 一致，便于从 UI 引用共享类型
@@ -40,9 +44,15 @@ export default defineConfig({
       },
     },
   },
+  esbuild: {
+    // Work around xterm.js 6.0.0 requestMode breakage under identifier mangling.
+    minifyIdentifiers: false,
+  },
   build: {
-    // 产物供 Go/Node 等静态托管，与 API 同源便于 /ws
     outDir: path.resolve(__dirname, "../server/static"),
     emptyOutDir: true,
+    // Strong safeguard: avoid re-minifying xterm 6.0.0's already-minified ESM until
+    // upstream publishes a stable non-affected release.
+    minify: false,
   },
 });

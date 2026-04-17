@@ -215,6 +215,22 @@ async function cmdStart(portOverride?: number, daemon?: boolean): Promise<void> 
 
     process.on("SIGINT", () => void shutdown("SIGINT"));
     process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+    const crashLogPath = join(LOG_DIR, "crash.log");
+    const writeCrash = (label: string, err: unknown) => {
+      const ts = new Date().toISOString();
+      const msg = err instanceof Error ? `${err.stack ?? err.message}` : String(err);
+      const line = `[${ts}] ${label}: ${msg}\n`;
+      try { require("node:fs").appendFileSync(crashLogPath, line); } catch { /* ignore */ }
+      console.error(`${label}:`, err);
+    };
+    process.on("uncaughtException", (err) => {
+      writeCrash("uncaughtException", err);
+      process.exit(1);
+    });
+    process.on("unhandledRejection", (reason) => {
+      writeCrash("unhandledRejection", reason);
+    });
   } catch (e) {
     const err = e as NodeJS.ErrnoException;
     if (err.code === "EADDRINUSE") {
