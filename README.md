@@ -71,6 +71,7 @@ flowchart TB
 - **Web UI 仪表盘**：集中查看和管理所有 Agent 会话，WebSocket 实时消息推送
 - **阻塞式交互**：Agent 调用后暂停等待，用户回复后自动继续
 - **消息队列**：用户可预先编写回复，Agent 下次提问时自动发送
+- **浏览器终端**：内置 Web terminal，支持 per-session PTY，会话关闭后再次打开可保留当前终端实例与历史画面，并修复 `vim` 等交互式 TUI 在生产构建中的终端异常
 - **会话管理**：Pin 消息、自定义标签、来源标识、工作区关联
 - **预定义消息**：配置常用回复后缀，一键附加到回复中
 - **文件附件**：支持上传图片等文件作为附件
@@ -348,6 +349,7 @@ flowchart TB
 - **Web UI Dashboard**: Centralized view for all agent sessions with real-time WebSocket updates
 - **Blocking Interaction**: Agent blocks until the user replies, then continues automatically
 - **Reply Queue**: Pre-compose replies that auto-send when the agent asks next
+- **Browser Terminal**: Built-in web terminal with per-session PTY sessions; reopening the drawer keeps the live terminal instance and visible history, with extra safeguards for interactive TUIs like `vim` in production builds
 - **Session Management**: Pin messages, custom tags, source badges, workspace association
 - **Predefined Messages**: Configure reusable reply suffixes
 - **File Attachments**: Upload and attach images/files to replies

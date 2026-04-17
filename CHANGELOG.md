@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.5 (2026-04-17)
+
+### Features
+
+- **file drawer: richer preview & editing** — the document drawer now defaults to edit mode, supports undo/redo, inline Shiki-backed highlighting, copy-path feedback, fullscreen mode, and improved horizontal scrolling for wide content.
+- **settings: shortcut help & predefined message editing** — settings now expose a dedicated hotkeys panel and let users edit predefined message entries in place.
+- **deploy: Cursor stop hook support** — Cursor deployment now manages `hooks.json` stop hooks so the main agent is reminded to report via `super-ask` before finishing.
+
+### Fixes
+
+- **terminal: keep browser terminal state across drawer close/reopen** — `TerminalDrawerCore` no longer unmounts when the drawer is hidden, so the same session keeps its live xterm instance, visible history, and websocket connection instead of depending on scrollback replay to reconstruct the screen.
+- **terminal: avoid broken xterm production bundle** — UI build output now ships with stronger safeguards against the `@xterm/xterm@6.0.0` `requestMode` minification bug that breaks `vim` and other TUI apps in browser terminals.
+- **layout & metadata polish** — chat/session layout refinements, crash log capture on the server, and startup log rotation improve debugging and day-to-day operability.
+
+### Docs
+
+- **README: terminal notes refresh** — document the browser terminal behavior in both Chinese and English, including live session preservation across drawer toggles and safer bundled xterm output for interactive terminal apps.
+
 ## v1.1.3 (2026-04-16)
 
 ### Bug Fixes
