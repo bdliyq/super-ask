@@ -2899,6 +2899,58 @@ body {
   padding: 20px;
 }
 
+/* === 快捷键面板 === */
+.settings-shortcuts {
+  max-width: 480px;
+}
+
+.settings-shortcuts__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.settings-shortcuts__table th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.settings-shortcuts__table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-shortcuts__keys {
+  white-space: nowrap;
+}
+
+.settings-shortcuts__kbd {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-subtle);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  min-width: 24px;
+  text-align: center;
+}
+
+.settings-shortcuts__plus {
+  margin: 0 4px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.settings-shortcuts__desc {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
 .about-panel__markdown {
   width: 100%;
 }
@@ -3158,14 +3210,29 @@ body {
 /* ── FileDrawer ── */
 
 .file-drawer {
-  width: 480px;
-  max-width: 50vw;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
   border-left: 1px solid var(--border-subtle);
   overflow: hidden;
+  position: relative;
+}
+
+.file-drawer__resize-handle {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.file-drawer__resize-handle:hover,
+.file-drawer__resize-handle:active {
+  background: var(--accent);
+  opacity: 0.5;
 }
 
 .file-drawer__header {
@@ -3371,4 +3438,41 @@ body {
   padding: 40px;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.file-drawer__editor {
+  flex: 1;
+  width: 100%;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--pre-bg);
+  color: var(--text-primary);
+  tab-size: 2;
+}
+
+.file-drawer__save-btn {
+  padding: 2px 10px;
+  font-size: 11px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+
+.file-drawer__save-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.file-drawer__dirty-dot {
+  color: var(--accent);
+  margin-left: 4px;
+  font-size: 10px;
 }

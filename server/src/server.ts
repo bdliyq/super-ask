@@ -803,6 +803,46 @@ export function startSuperAsk(
       return;
     }
 
+    // PUT /api/write-file — 保存文件内容
+    if (method === "PUT" && pathname === "/api/write-file") {
+      if (!requireAuth(req, res)) return;
+      let body: unknown;
+      try {
+        body = await readJsonBody(req, 4 * 1024 * 1024);
+      } catch (e: unknown) {
+        const msg = e instanceof Error && e.message === "BODY_TOO_LARGE" ? "文件过大" : "无效请求体";
+        res.statusCode = e instanceof Error && e.message === "BODY_TOO_LARGE" ? 413 : 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: msg }));
+        return;
+      }
+      const { path: filePath, content } = (body ?? {}) as { path?: string; content?: string };
+      if (typeof filePath !== "string" || !filePath.trim() || typeof content !== "string") {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "path 和 content 字段必填" }));
+        return;
+      }
+      const resolved = resolve(filePath.trim());
+      if (resolved.includes("\0")) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "无效路径" }));
+        return;
+      }
+      try {
+        await writeFile(resolved, content, "utf-8");
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ success: true, resolvedPath: resolved }));
+      } catch {
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "写入失败" }));
+      }
+      return;
+    }
+
     // GET /api/predefined-msgs — 获取预定义消息列表
     if (method === "GET" && pathname === "/api/predefined-msgs") {
       if (!requireAuth(req, res)) return;
