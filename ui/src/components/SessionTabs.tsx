@@ -134,6 +134,7 @@ interface SessionTabsProps {
   activeSessionId: string | null;
   onSelect: (id: string) => void;
   onTogglePin?: (id: string) => void;
+  onReorderPinned?: (newOrder: string[]) => void;
   onDelete: (id: string) => void;
   onTogglePanel?: () => void;
 }
@@ -144,6 +145,7 @@ export function SessionTabs({
   activeSessionId,
   onSelect,
   onTogglePin,
+  onReorderPinned,
   onDelete,
   onTogglePanel,
 }: SessionTabsProps) {
@@ -153,8 +155,22 @@ export function SessionTabs({
   const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [collapsedGroups, setCollapsedGroups] = useState<Partial<Record<SessionGroupKey, boolean>>>({});
   const [visibleCountsByGroup, setVisibleCountsByGroup] = useState<Partial<Record<SessionGroupKey, number>>>({});
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const dragSrcIdRef = useRef<string | null>(null);
   const pinnedSet = useMemo(() => new Set(pinnedSessionIds), [pinnedSessionIds]);
-  const sessionGroups = useMemo(() => buildSessionGroups(sessions), [sessions]);
+  const sessionMap = useMemo(() => new Map(sessions.map((s) => [s.chatSessionId, s])), [sessions]);
+
+  const pinnedSessions = useMemo(
+    () => pinnedSessionIds.map((id) => sessionMap.get(id)).filter((s): s is SessionInfo => !!s),
+    [pinnedSessionIds, sessionMap],
+  );
+
+  const unpinnedSessions = useMemo(
+    () => sessions.filter((s) => !pinnedSet.has(s.chatSessionId)),
+    [sessions, pinnedSet],
+  );
+
+  const sessionGroups = useMemo(() => buildSessionGroups(unpinnedSessions), [unpinnedSessions]);
 
   const visibleSessions = useMemo(() => {
     const list: SessionInfo[] = [];
@@ -239,6 +255,45 @@ export function SessionTabs({
     setHoveredId(null);
   }, []);
 
+  const handleDragStart = useCallback((e: React.DragEvent<HTMLDivElement>, id: string) => {
+    dragSrcIdRef.current = id;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", id);
+    e.currentTarget.classList.add("session-tabs__item--dragging");
+  }, []);
+
+  const handleDragEnd = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.currentTarget.classList.remove("session-tabs__item--dragging");
+    dragSrcIdRef.current = null;
+    setDragOverId(null);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>, id: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (id !== dragSrcIdRef.current) {
+      setDragOverId(id);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOverId(null);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>, targetId: string) => {
+    e.preventDefault();
+    setDragOverId(null);
+    const srcId = dragSrcIdRef.current;
+    if (!srcId || srcId === targetId || !onReorderPinned) return;
+    const order = [...pinnedSessionIds];
+    const srcIdx = order.indexOf(srcId);
+    const tgtIdx = order.indexOf(targetId);
+    if (srcIdx === -1 || tgtIdx === -1) return;
+    order.splice(srcIdx, 1);
+    order.splice(tgtIdx, 0, srcId);
+    onReorderPinned(order);
+  }, [pinnedSessionIds, onReorderPinned]);
+
   const toggleGroupCollapsed = useCallback((key: SessionGroupKey) => {
     setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
@@ -260,12 +315,95 @@ export function SessionTabs({
     <aside className="session-tabs" aria-label={t.sessionList}>
       <div className="session-tabs__banner">
         <span className="session-tabs__banner-title">{t.sessionList}</span>
+        {onTogglePanel && (
+          <button
+            type="button"
+            className="session-tabs__toggle"
+            onClick={onTogglePanel}
+            aria-label={t.toggleSidebar}
+          >
+            <SidebarIcon />
+          </button>
+        )}
       </div>
       <div className="session-tabs__list">
         {sessions.length === 0 ? (
           <div className="session-tabs__empty">{t.noSessions}</div>
         ) : (
-          sessionGroups.map((group) => {
+          <>
+          {pinnedSessions.length > 0 && (
+            <section className="session-tabs__group session-tabs__group--pinned">
+              <div className="session-tabs__group-toggle session-tabs__group-toggle--pinned-header">
+                <PinIcon filled />
+                <span className="session-tabs__group-title">{t.pin}</span>
+                <span className="session-tabs__group-count">{pinnedSessions.length}</span>
+              </div>
+              <div className="session-tabs__group-list">
+                {pinnedSessions.map((s) => {
+                  const selected = s.chatSessionId === activeSessionId;
+                  const pinLabel = `${t.unpin} ${s.title || t.unnamed}`;
+                  const visibleIndex = visibleSessionIndexById.get(s.chatSessionId) ?? 0;
+                  const isDragOver = dragOverId === s.chatSessionId;
+
+                  return (
+                    <div
+                      key={s.chatSessionId}
+                      ref={(el) => {
+                        if (el) itemRefs.current.set(s.chatSessionId, el);
+                        else itemRefs.current.delete(s.chatSessionId);
+                      }}
+                      role="button"
+                      aria-current={selected ? "page" : undefined}
+                      tabIndex={selected ? 0 : -1}
+                      draggable={!!onReorderPinned}
+                      className={`session-tabs__item session-tabs__item--active-pin ${selected ? "session-tabs__item--active" : ""} ${
+                        s.hasPending ? "session-tabs__item--pending" : ""
+                      } session-tabs__item--pinned${isDragOver ? " session-tabs__item--drag-over" : ""}`}
+                      onClick={() => onSelect(s.chatSessionId)}
+                      onKeyDown={(e) => onTabKeyDown(e, visibleIndex)}
+                      onMouseEnter={(e) => handleMouseEnter(e, s.chatSessionId)}
+                      onMouseLeave={handleMouseLeave}
+                      onDragStart={(e) => handleDragStart(e, s.chatSessionId)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e) => handleDragOver(e, s.chatSessionId)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, s.chatSessionId)}
+                    >
+                      {onReorderPinned && (
+                        <span className="session-tabs__drag-handle" aria-hidden>⠿</span>
+                      )}
+                      {onTogglePin && (
+                        <button
+                          type="button"
+                          className="session-tabs__pin session-tabs__pin--active"
+                          aria-label={pinLabel}
+                          title={pinLabel}
+                          onClick={(e) => handleTogglePin(e, s.chatSessionId)}
+                        >
+                          <PinIcon filled />
+                        </button>
+                      )}
+                      <SourceBadge source={s.source} />
+                      <span className="session-tabs__item-title">{s.title || t.unnamed}</span>
+                      <RequestStatusBadge status={s.requestStatus} />
+                      {s.hasPending ? (
+                        <span className="session-tabs__dot" title={t.pendingReply} aria-hidden />
+                      ) : null}
+                      <button
+                        type="button"
+                        className="session-tabs__delete"
+                        aria-label={`${t.deleteSession} ${s.title || t.unnamed}`}
+                        onClick={(e) => handleDelete(e, s.chatSessionId)}
+                      >
+                        <TrashIcon />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+          {sessionGroups.map((group) => {
             const collapsed = Boolean(collapsedGroups[group.key]);
             const containsActiveSession = group.sessions.some(
               (session) => session.chatSessionId === activeSessionId,
@@ -388,7 +526,8 @@ export function SessionTabs({
                 ) : null}
               </section>
             );
-          })
+          })}
+          </>
         )}
       </div>
       {hoveredSession && (
@@ -448,16 +587,6 @@ export function SessionTabs({
             </tbody>
           </table>
         </div>
-      )}
-      {onTogglePanel && (
-        <button
-          type="button"
-          className="session-tabs__toggle"
-          onClick={onTogglePanel}
-          aria-label={t.toggleSidebar}
-        >
-          <SidebarIcon />
-        </button>
       )}
     </aside>
   );

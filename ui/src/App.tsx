@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { ChatView } from "./components/ChatView";
+import { TerminalDrawer } from "./components/TerminalDrawer";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SessionTabs } from "./components/SessionTabs";
 import { StatusBar } from "./components/StatusBar";
@@ -55,9 +56,17 @@ export default function App() {
     return localStorage.getItem(PANEL_VISIBLE_KEY) !== "false";
   });
 
+  const [terminalDrawerOpen, setTerminalDrawerOpen] = useState<boolean>(() => {
+    return localStorage.getItem("super-ask-terminal-open") === "true";
+  });
+
   useEffect(() => {
     localStorage.setItem(PANEL_VISIBLE_KEY, String(panelVisible));
   }, [panelVisible]);
+
+  useEffect(() => {
+    localStorage.setItem("super-ask-terminal-open", String(terminalDrawerOpen));
+  }, [terminalDrawerOpen]);
 
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, view);
@@ -110,6 +119,7 @@ export default function App() {
     sessionsRef,
     setActiveSession,
     togglePinnedSession,
+    reorderPinnedSessions,
     handleServerMessage,
     activeCount,
     pendingCount,
@@ -287,6 +297,7 @@ export default function App() {
             activeSessionId={activeSessionId}
             onSelect={handleSessionSelect}
             onTogglePin={togglePinnedSession}
+            onReorderPinned={reorderPinnedSessions}
             onDelete={handleDeleteSession}
             onTogglePanel={togglePanel}
           />
@@ -320,6 +331,16 @@ export default function App() {
             onSendReply={onSendReply}
             queuedReplies={activeSessionId ? (queuedMessages.get(activeSessionId) || []) : []}
             onRemoveQueuedReply={activeSessionId ? (index: number) => onRemoveQueuedReply(activeSessionId, index) : undefined}
+            onOpenTerminal={() => setTerminalDrawerOpen((v) => !v)}
+            terminalOpen={terminalDrawerOpen}
+            terminalSlot={
+              <TerminalDrawer
+                open={terminalDrawerOpen}
+                onClose={() => setTerminalDrawerOpen(false)}
+                sessionId={activeSessionId}
+                workspaceRoot={activeSession?.workspaceRoot}
+              />
+            }
           />
         )}
       </main>

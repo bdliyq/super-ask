@@ -327,6 +327,22 @@ export function useSessions() {
     void syncPinnedSessionToggle(chatSessionId, pinned);
   }, [syncPinnedSessionToggle]);
 
+  const reorderPinnedSessions = useCallback(async (newOrder: string[]) => {
+    setPinnedSessionIds(newOrder);
+    try {
+      const resp = await fetch("/api/pinned-sessions", {
+        method: "POST",
+        headers: withAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ pinnedSessionIds: newOrder }),
+      });
+      if (!resp.ok) {
+        console.warn("[session-pin] reorder sync failed:", resp.status);
+      }
+    } catch (e) {
+      console.warn("[session-pin] reorder sync failed:", e);
+    }
+  }, [setPinnedSessionIds]);
+
   const sortedSessions = useMemo(() => {
     return sortSessionsForSidebar([...sessions.values()], pinnedSessionIds);
   }, [pinnedSessionIds, sessions]);
@@ -354,6 +370,7 @@ export function useSessions() {
     activeSession,
     setActiveSession,
     togglePinnedSession,
+    reorderPinnedSessions,
     handleServerMessage,
     activeCount,
     pendingCount,
