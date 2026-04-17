@@ -645,13 +645,16 @@ body {
 .session-tabs__group-toggle--pinned-header {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 12px 2px;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
   font-size: 11px;
   font-weight: 600;
   color: var(--accent);
   letter-spacing: 0.3px;
-  cursor: default;
+  cursor: pointer;
 }
 
 /* Drag handle — hidden by default, revealed on hover */
@@ -3101,8 +3104,6 @@ body {
   min-height: 0;
   background: #1e1e1e;
   padding: 4px 8px;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .terminal-drawer__body .xterm {
@@ -3111,9 +3112,4 @@ body {
 
 .terminal-drawer__body .xterm-viewport {
   background-color: #1e1e1e !important;
-}
-
-.terminal-drawer__body .xterm-screen {
-  user-select: text;
-  -webkit-user-select: text;
 }
