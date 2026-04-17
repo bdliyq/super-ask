@@ -4,11 +4,12 @@ import { TerminalDrawer } from "./components/TerminalDrawer";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SessionTabs } from "./components/SessionTabs";
 import { StatusBar } from "./components/StatusBar";
-import type { FileAttachment, WsServerMessage } from "@shared/types";
+import type { FileAttachment, ReadFileResponse, WsServerMessage } from "@shared/types";
 import { useSessions } from "./hooks/useSessions";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useI18n } from "./i18n";
 import { getActivePredefinedSuffix, isNotificationEnabled } from "./components/SystemSettings";
+import { withAuthHeaders } from "./auth";
 
 const THEME_STORAGE_KEY = "super-ask-theme";
 const PANEL_WIDTH_KEY = "super-ask-panel-width";
@@ -24,7 +25,7 @@ export function resolveInitialView(stored: string | null): "chat" | "settings" {
 }
 
 export default function App() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [view, setView] = useState<"chat" | "settings">(() =>
     resolveInitialView(localStorage.getItem(VIEW_STORAGE_KEY)),
   );
@@ -63,6 +64,21 @@ export default function App() {
     } catch { return {}; }
   });
 
+  const [showPinPanel, setShowPinPanel] = useState(false);
+  const [sessionFileMap, setSessionFileMap] = useState<Record<string, ReadFileResponse>>({});
+  const [sessionFileOpen, setSessionFileOpen] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem("super-ask-docs-open-map");
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  });
+  const [sessionFilePathMap, setSessionFilePathMap] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem("super-ask-docs-path-map");
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  });
+
   useEffect(() => {
     localStorage.setItem(PANEL_VISIBLE_KEY, String(panelVisible));
   }, [panelVisible]);
@@ -70,6 +86,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("super-ask-terminal-open-map", JSON.stringify(terminalOpenMap));
   }, [terminalOpenMap]);
+
+  useEffect(() => {
+    localStorage.setItem("super-ask-docs-open-map", JSON.stringify(sessionFileOpen));
+  }, [sessionFileOpen]);
+
+  useEffect(() => {
+    localStorage.setItem("super-ask-docs-path-map", JSON.stringify(sessionFilePathMap));
+  }, [sessionFilePathMap]);
 
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, view);
@@ -127,6 +151,54 @@ export default function App() {
     activeCount,
     pendingCount,
   } = useSessions();
+
+  const activeSessionIdRef = useRef(activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
+
+  useEffect(() => {
+    setShowPinPanel(false);
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    if (sessionFileMap[activeSessionId]) return;
+    const storedPath = sessionFilePathMap[activeSessionId];
+    if (!storedPath) return;
+    if (!sessionFileOpen[activeSessionId]) return;
+    const params = new URLSearchParams({ path: storedPath });
+    if (activeSession?.workspaceRoot) params.set("workspaceRoot", activeSession.workspaceRoot);
+    let cancelled = false;
+    fetch(`/api/read-file?${params}`, { headers: withAuthHeaders() })
+      .then(res => res.ok ? res.json() : null)
+      .then((data: ReadFileResponse | null) => {
+        if (cancelled || !data || data.isBinary) return;
+        setSessionFileMap(prev => ({ ...prev, [activeSessionId]: data }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeSessionId, activeSession?.workspaceRoot, sessionFileMap, sessionFilePathMap, sessionFileOpen]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      if (e.key === ".") {
+        e.preventDefault();
+        const sid = activeSessionIdRef.current;
+        if (sid) {
+          setTerminalOpenMap((m) => ({ ...m, [sid]: !m[sid] }));
+        }
+      } else if (e.key === "/") {
+        e.preventDefault();
+        setPanelVisible((v) => !v);
+      } else if (e.key === "'") {
+        e.preventDefault();
+        toggleDocsRef.current?.();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   interface QueuedReply { text: string; displayText: string; attachments?: FileAttachment[] }
 
@@ -269,11 +341,35 @@ export default function App() {
     [sendDeleteSession],
   );
 
+  const fileDrawerOpen = Boolean(activeSessionId && sessionFileOpen[activeSessionId]);
+  const fileDrawerData = activeSessionId
+    ? (sessionFileMap[activeSessionId] ?? null)
+    : null;
+
+  const handleSetFileDrawerData = useCallback((data: ReadFileResponse | null) => {
+    if (!activeSessionId) return;
+    if (data) {
+      setSessionFileMap(prev => ({ ...prev, [activeSessionId]: data }));
+      setSessionFileOpen(prev => ({ ...prev, [activeSessionId]: true }));
+      setSessionFilePathMap(prev => ({ ...prev, [activeSessionId]: data.resolvedPath }));
+    } else {
+      setSessionFileOpen(prev => ({ ...prev, [activeSessionId]: false }));
+    }
+  }, [activeSessionId]);
+
+  const toggleDocs = useCallback(() => {
+    if (!activeSessionId) return;
+    setSessionFileOpen(prev => ({ ...prev, [activeSessionId]: !prev[activeSessionId] }));
+  }, [activeSessionId]);
+
+  const toggleDocsRef = useRef(toggleDocs);
+  toggleDocsRef.current = toggleDocs;
+
   const isSettings = view === "settings";
+  const terminalOpen = Boolean(activeSessionId && terminalOpenMap[activeSessionId]);
 
   return (
     <div className={`app ${isSettings ? "app--settings" : ""} ${!panelVisible && !isSettings ? "app--panel-hidden" : ""}`}>
-      {/* 统一页眉 */}
       <header className="app__header">
         <img src="/logo.png" alt="" className="app__header-logo" />
         <h1 className="app__header-brand">{t.appTitle}</h1>
@@ -291,7 +387,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* 聊天模式：会话列表 + 分割线 + 聊天区 */}
       {!isSettings && (
         <>
           <SessionTabs
@@ -323,27 +418,57 @@ export default function App() {
             connected={connected}
             queuedReplies={activeSessionId ? (queuedMessages.get(activeSessionId) || []) : []}
             onRemoveQueuedReply={activeSessionId ? (index: number) => onRemoveQueuedReply(activeSessionId, index) : undefined}
-            onOpenTerminal={() => {
-              if (activeSessionId) {
-                setTerminalOpenMap((m) => ({ ...m, [activeSessionId]: !m[activeSessionId] }));
-              }
-            }}
-            terminalOpen={Boolean(activeSessionId && terminalOpenMap[activeSessionId])}
             terminalSlot={
               <TerminalDrawer
-                open={Boolean(activeSessionId && terminalOpenMap[activeSessionId])}
-                onClose={() => {
-                  if (activeSessionId) {
-                    setTerminalOpenMap((m) => ({ ...m, [activeSessionId]: false }));
-                  }
-                }}
+                open={terminalOpen}
                 sessionId={activeSessionId}
                 workspaceRoot={activeSession?.workspaceRoot}
               />
             }
+            showPinPanel={showPinPanel}
+            onSetShowPinPanel={setShowPinPanel}
+            fileDrawerOpen={fileDrawerOpen}
+            fileDrawerData={fileDrawerData}
+            onSetFileDrawerData={handleSetFileDrawerData}
           />
         )}
       </main>
+
+      {!isSettings && (
+        <div className="app__right-rail">
+          <button
+            type="button"
+            className={`app__right-rail-btn${terminalOpen ? " app__right-rail-btn--active" : ""}`}
+            title={locale === "zh" ? "终端" : "Terminal"}
+            onClick={() => {
+              if (activeSessionId) {
+                setTerminalOpenMap((m) => ({ ...m, [activeSessionId]: !m[activeSessionId] }));
+              }
+            }}
+            disabled={!activeSessionId}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="3" width="12" height="10" rx="1" />
+              <path d="M5 6l2 2-2 2" />
+              <path d="M9 10h3" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={`app__right-rail-btn${fileDrawerOpen ? " app__right-rail-btn--active" : ""}`}
+            title={locale === "zh" ? "文档" : "Docs"}
+            onClick={toggleDocs}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 1.5h7l3.5 3.5V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2.5A1 1 0 0 1 3 1.5Z" />
+              <path d="M10 1.5V5h3.5" />
+              <path d="M5 8.5h6" />
+              <path d="M5 11h4" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       <StatusBar
         connected={connected}
         activeSessions={activeCount}

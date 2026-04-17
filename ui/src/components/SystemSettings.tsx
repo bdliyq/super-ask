@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { withAuthHeaders } from "../auth";
 import { useI18n } from "../i18n";
 import type { Locale } from "../i18n";
@@ -14,6 +14,7 @@ interface PredefinedMessagesListProps {
   messages: PredefinedMsg[];
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
+  onEdit: (id: string, newText: string) => void;
 }
 
 const NOTIFICATION_KEY = "super-ask-notification-enabled";
@@ -60,37 +61,106 @@ export async function getActivePredefinedSuffix(): Promise<string> {
   return "\n" + active.map((m) => m.text.trim()).join("\n");
 }
 
+function PredefinedMsgItem({
+  msg,
+  onToggle,
+  onRemove,
+  onEdit,
+}: {
+  msg: PredefinedMsg;
+  onToggle: () => void;
+  onRemove: () => void;
+  onEdit: (newText: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(msg.text);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const commitEdit = useCallback(() => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== msg.text) {
+      onEdit(trimmed);
+    }
+    setEditing(false);
+  }, [draft, msg.text, onEdit]);
+
+  useEffect(() => {
+    if (editing) {
+      setDraft(msg.text);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [editing, msg.text]);
+
+  return (
+    <div className="system-settings__predefined-item">
+      <label className="system-settings__predefined-check">
+        <input
+          type="checkbox"
+          checked={msg.active}
+          onChange={onToggle}
+        />
+      </label>
+      {editing ? (
+        <input
+          ref={inputRef}
+          type="text"
+          className="system-settings__predefined-edit-input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitEdit();
+            if (e.key === "Escape") setEditing(false);
+          }}
+        />
+      ) : (
+        <span className={`system-settings__predefined-text ${msg.active ? "" : "system-settings__predefined-text--inactive"}`}>
+          {msg.text}
+        </span>
+      )}
+      {!editing && (
+        <button
+          type="button"
+          className="system-settings__predefined-edit"
+          onClick={() => setEditing(true)}
+          title="Edit"
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" />
+          </svg>
+        </button>
+      )}
+      <CopyButton
+        text={msg.text}
+        className="system-settings__predefined-copy"
+      />
+      <button
+        type="button"
+        className="system-settings__predefined-remove"
+        onClick={onRemove}
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 export function PredefinedMessagesList({
   messages,
   onToggle,
   onRemove,
+  onEdit,
 }: PredefinedMessagesListProps) {
   return (
     <div className="system-settings__predefined-list">
       {messages.map((msg) => (
-        <div key={msg.id} className="system-settings__predefined-item">
-          <label className="system-settings__predefined-check">
-            <input
-              type="checkbox"
-              checked={msg.active}
-              onChange={() => onToggle(msg.id)}
-            />
-          </label>
-          <span className={`system-settings__predefined-text ${msg.active ? "" : "system-settings__predefined-text--inactive"}`}>
-            {msg.text}
-          </span>
-          <CopyButton
-            text={msg.text}
-            className="system-settings__predefined-copy"
-          />
-          <button
-            type="button"
-            className="system-settings__predefined-remove"
-            onClick={() => onRemove(msg.id)}
-          >
-            ✕
-          </button>
-        </div>
+        <PredefinedMsgItem
+          key={msg.id}
+          msg={msg}
+          onToggle={() => onToggle(msg.id)}
+          onRemove={() => onRemove(msg.id)}
+          onEdit={(newText) => onEdit(msg.id, newText)}
+        />
       ))}
     </div>
   );
@@ -333,6 +403,13 @@ export function SystemSettings() {
             }}
             onRemove={(id) => {
               const next = predefinedMsgs.filter((msg) => msg.id !== id);
+              setPredefinedMsgs(next);
+              void savePredefinedMsgs(next);
+            }}
+            onEdit={(id, newText) => {
+              const next = predefinedMsgs.map((msg) =>
+                msg.id === id ? { ...msg, text: newText } : msg
+              );
               setPredefinedMsgs(next);
               void savePredefinedMsgs(next);
             }}

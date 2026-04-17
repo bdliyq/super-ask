@@ -92,7 +92,7 @@ body {
 
 .app {
   display: grid;
-  grid-template-columns: var(--tab-width) 4px 1fr;
+  grid-template-columns: var(--tab-width) 4px 1fr 44px;
   grid-template-rows: auto 1fr var(--status-height);
   height: 100%;
   min-height: 0;
@@ -296,7 +296,7 @@ body {
 
 /* panel 隐藏时：显示迷你侧栏 */
 .app--panel-hidden {
-  grid-template-columns: 44px 0px 1fr;
+  grid-template-columns: 44px 0px 1fr 44px;
 }
 
 .app--panel-hidden .app__resize-handle {
@@ -305,6 +305,82 @@ body {
 
 .app--panel-hidden .app__main {
   border-left: none;
+}
+
+/* settings 模式隐藏右侧栏 */
+.app--settings .app__right-rail {
+  display: none;
+}
+
+/* === 右侧工具栏 === */
+.app__right-rail {
+  grid-column: 4;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  background: var(--bg-app);
+  border-left: 1px solid var(--border-subtle);
+}
+
+.app__right-rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.app__right-rail-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+.app__right-rail-btn--active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.app__right-rail-btn--active:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.app__right-rail-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.app__right-rail-count {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  min-width: 14px;
+  text-align: center;
+}
+
+.app__right-rail-btn--active .app__right-rail-count {
+  background: #fff;
+  color: var(--accent);
 }
 
 .status-bar {
@@ -609,7 +685,6 @@ body {
 }
 
 .session-tabs__item--active .session-tabs__delete {
-  display: inline-flex;
   color: #fff;
 }
 
@@ -906,9 +981,18 @@ body {
 .chat-view {
   flex: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   min-height: 0;
   background: var(--bg-app);
+  position: relative;
+}
+
+.chat-view__primary {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .chat-view--empty {
@@ -1239,7 +1323,7 @@ body {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  flex-shrink: 1;
+  flex-shrink: 0;
 }
 
 .chat-view__banner-title {
@@ -1256,10 +1340,10 @@ body {
   display: inline-flex;
   align-items: center;
   font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 300px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .chat-view__banner-id {
@@ -1269,6 +1353,15 @@ body {
   font-family: var(--font-mono);
   opacity: 0.7;
   white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.chat-view__banner-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .chat-view__copy-btn {
@@ -2212,27 +2305,36 @@ body {
   font: inherit;
   line-height: 1.45;
   padding: 10px 12px;
-  padding-bottom: 40px; /* 为右下角按钮预留空间 */
-  border-radius: 8px;
+  border-radius: 8px 8px 0 0;
   border: 1px solid var(--border-subtle);
+  border-bottom: none;
   background: var(--bg-app);
   color: var(--text-primary);
   box-sizing: border-box;
 }
 
 .reply-box__toolbar {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
   align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  background: var(--bg-app);
 }
 
 .reply-box__input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow: -1px 0 0 0 var(--accent), 1px 0 0 0 var(--accent), 0 -1px 0 0 var(--accent);
+}
+
+.reply-box__input:focus + .reply-box__file-input + .reply-box__toolbar,
+.reply-box__input:focus ~ .reply-box__toolbar {
+  border-color: var(--accent);
+  box-shadow: -1px 0 0 0 var(--accent), 1px 0 0 0 var(--accent), 0 1px 0 0 var(--accent);
 }
 
 .reply-box__input:disabled {
@@ -2371,6 +2473,10 @@ body {
   }
 
   .app__resize-handle {
+    display: none;
+  }
+
+  .app__right-rail {
     display: none;
   }
 
@@ -2681,6 +2787,12 @@ body {
 }
 
 @keyframes deploy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spin {
   to {
     transform: rotate(360deg);
   }
@@ -3080,6 +3192,38 @@ body {
   color: #e53935;
 }
 
+.system-settings__predefined-edit {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.system-settings__predefined-edit:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.system-settings__predefined-edit-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  outline: none;
+}
+
 .system-settings__predefined-add {
   display: flex;
   gap: 8px;
@@ -3165,31 +3309,51 @@ body {
   opacity: 0.5;
 }
 
-.terminal-drawer__maximize-float {
-  position: absolute;
-  top: 4px;
-  right: 20px;
-  z-index: 10;
-  width: 24px;
-  height: 24px;
+.terminal-drawer__banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--panel-banner-min-height);
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: var(--panel-banner-padding-y) var(--panel-banner-padding-x);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  gap: 12px;
+}
+
+.terminal-drawer__banner-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.terminal-drawer__banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.terminal-drawer__banner-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin: 0;
-  padding: 0;
+  width: 26px;
+  height: 26px;
   border: none;
+  background: transparent;
+  color: var(--text-muted);
   border-radius: 4px;
-  font-size: 16px;
-  line-height: 1;
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  padding: 0;
+  transition: background 0.12s, color 0.12s;
 }
 
-.terminal-drawer__maximize-float:hover {
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
+.terminal-drawer__banner-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .terminal-drawer__body {
@@ -3207,13 +3371,22 @@ body {
   background-color: #1e1e1e !important;
 }
 
+/* 全屏覆盖整个 chat-view 区域 */
+.terminal-drawer--maximized,
+.file-drawer--maximized {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  width: 100% !important;
+}
+
 /* ── FileDrawer ── */
 
 .file-drawer {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
+  background: var(--bg-app);
   border-left: 1px solid var(--border-subtle);
   overflow: hidden;
   position: relative;
@@ -3239,9 +3412,15 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  height: var(--panel-banner-min-height);
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: var(--panel-banner-padding-y) var(--panel-banner-padding-x);
+  background: var(--bg-panel);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-muted);
   gap: 8px;
 }
 
@@ -3315,9 +3494,14 @@ body {
   transition: background 0.12s, color 0.12s;
 }
 
-.file-drawer__icon-btn:hover {
+.file-drawer__icon-btn:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.file-drawer__icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .file-drawer__close {
@@ -3360,7 +3544,10 @@ body {
 
 .file-drawer__body {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
 }
 
@@ -3440,9 +3627,49 @@ body {
   font-size: 13px;
 }
 
-.file-drawer__editor {
+.file-drawer__editor-wrapper {
   flex: 1;
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.file-drawer__editor-highlight {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  pointer-events: none;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.file-drawer__editor-highlight .shiki,
+.file-drawer__editor-highlight pre,
+.file-drawer__editor-highlight code {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+  font: inherit;
+  line-height: inherit;
+  overflow: visible;
+}
+
+.file-drawer__editor-highlight .shiki,
+.file-drawer__editor-highlight pre {
+  min-width: max-content;
+}
+
+.file-drawer__editor {
+  position: relative;
+  z-index: 1;
   width: 100%;
+  height: 100%;
+  min-height: 0;
   resize: none;
   border: none;
   outline: none;
@@ -3450,20 +3677,28 @@ body {
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.6;
-  background: var(--pre-bg);
-  color: var(--text-primary);
+  background: #ffffff;
+  color: #1e1e1e;
   tab-size: 2;
+  white-space: pre;
+  overflow: auto;
 }
 
-.file-drawer__save-btn {
-  padding: 2px 10px;
-  font-size: 11px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: #fff;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: opacity 0.12s;
+[data-theme="dark"] .file-drawer__editor {
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+.file-drawer__editor--transparent {
+  color: transparent;
+  caret-color: #1e1e1e;
+  background: transparent;
+}
+
+[data-theme="dark"] .file-drawer__editor--transparent {
+  color: transparent;
+  background: transparent;
+  caret-color: #d4d4d4;
 }
 
 .file-drawer__save-btn:disabled {
