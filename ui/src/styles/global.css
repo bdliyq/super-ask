@@ -975,9 +975,9 @@ body {
   border-radius: 4px;
   color: var(--text-primary);
   cursor: pointer;
-  width: 28px;
+  min-width: 28px;
   height: 24px;
-  padding: 0;
+  padding: 0 6px;
   font-size: 11px;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
@@ -987,6 +987,11 @@ body {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+}
+
+.chat-view__pin-toggle:hover .chat-view__pin-count,
+.chat-view__pin-toggle--active .chat-view__pin-count {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .chat-view__pin-count {
