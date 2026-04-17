@@ -172,9 +172,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 0;
-  flex-shrink: 0;
+  min-height: var(--panel-banner-min-height);
+  padding: var(--panel-banner-padding-y) 0;
+  background: var(--bg-panel);
   border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
   width: 100%;
 }
 
