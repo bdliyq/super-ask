@@ -107,6 +107,10 @@ echo ""
 echo "[7/7] 后台启动 Server (端口: $PORT) ..."
 cd "$SCRIPT_DIR/server"
 
+if [ -s "$LOG_FILE" ]; then
+  mv "$LOG_FILE" "${LOG_FILE%.log}.prev.log" 2>/dev/null || true
+fi
+
 nohup $NODE_BIN dist/index.js start --port "$PORT" \
   > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!

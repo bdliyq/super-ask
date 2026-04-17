@@ -5,16 +5,12 @@ import { AboutPanel } from "./AboutPanel";
 import { DeployPanel } from "./DeployPanel";
 import { SystemSettings } from "./SystemSettings";
 
-/**
- * 配置面板：左侧导航切换「系统设置」与「部署管理」。
- * header 和返回按钮由 App 统一页眉提供。
- */
-export type SettingsTab = "system" | "deploy" | "about";
+export type SettingsTab = "system" | "deploy" | "hotkeys" | "about";
 
 const SETTINGS_TAB_STORAGE_KEY = "super-ask-settings-tab";
 
 export function resolveInitialSettingsTab(stored: string | null): SettingsTab | null {
-  if (stored === "system" || stored === "deploy" || stored === "about") {
+  if (stored === "system" || stored === "deploy" || stored === "hotkeys" || stored === "about") {
     return stored;
   }
   return null;
@@ -23,6 +19,47 @@ export function resolveInitialSettingsTab(stored: string | null): SettingsTab | 
 interface SettingsPanelProps {
   initialTab?: SettingsTab;
   aboutMarkdownByLocale?: Partial<Record<Locale, string>>;
+}
+
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+const MOD = isMac ? "⌘" : "Ctrl";
+
+function ShortcutsPanel() {
+  const { t } = useI18n();
+  const shortcuts = [
+    { keys: `${MOD} + .`, desc: t.shortcutTerminalToggle },
+    { keys: `${MOD} + /`, desc: t.shortcutSessionListToggle },
+    { keys: `${MOD} + '`, desc: t.shortcutDocsToggle },
+    { keys: `${MOD} + Enter`, desc: t.shortcutSendReply },
+  ];
+
+  return (
+    <div className="settings-shortcuts">
+      <table className="settings-shortcuts__table">
+        <thead>
+          <tr>
+            <th className="settings-shortcuts__th-keys">{isMac ? "Shortcut" : "Shortcut"}</th>
+            <th className="settings-shortcuts__th-desc">{isMac ? "Action" : "Action"}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shortcuts.map((s) => (
+            <tr key={s.keys}>
+              <td className="settings-shortcuts__keys">
+                {s.keys.split(" + ").map((k, i) => (
+                  <span key={i}>
+                    {i > 0 && <span className="settings-shortcuts__plus">+</span>}
+                    <kbd className="settings-shortcuts__kbd">{k}</kbd>
+                  </span>
+                ))}
+              </td>
+              <td className="settings-shortcuts__desc">{s.desc}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export function SettingsPanel({ initialTab = "system", aboutMarkdownByLocale }: SettingsPanelProps) {
@@ -55,6 +92,13 @@ export function SettingsPanel({ initialTab = "system", aboutMarkdownByLocale }: 
           </button>
           <button
             type="button"
+            className={`settings-panel__nav-item ${activeTab === "hotkeys" ? "settings-panel__nav-item--active" : ""}`}
+            onClick={() => setActiveTab("hotkeys")}
+          >
+            {t.hotKeys}
+          </button>
+          <button
+            type="button"
             className={`settings-panel__nav-item ${activeTab === "about" ? "settings-panel__nav-item--active" : ""}`}
             onClick={() => setActiveTab("about")}
           >
@@ -66,6 +110,8 @@ export function SettingsPanel({ initialTab = "system", aboutMarkdownByLocale }: 
             <SystemSettings />
           ) : activeTab === "deploy" ? (
             <DeployPanel />
+          ) : activeTab === "hotkeys" ? (
+            <ShortcutsPanel />
           ) : (
             <AboutPanel initialMarkdown={aboutMarkdownByLocale?.[locale]} />
           )}

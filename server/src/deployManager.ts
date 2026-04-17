@@ -52,6 +52,8 @@ const CODEX_MARKER_BEGIN = "<!-- SUPER-ASK-BEGIN -->";
 const CODEX_MARKER_END = "<!-- SUPER-ASK-END -->";
 const OPENCODE_MARKER_BEGIN = "<!-- SUPER-ASK-OPENCODE-BEGIN -->";
 const OPENCODE_MARKER_END = "<!-- SUPER-ASK-OPENCODE-END -->";
+const CURSOR_HOOKS_MARKER = "super-ask-stop-hook";
+
 const QWEN_CONTEXT_FILE_NAME = "super-ask-qwen.md";
 const QWEN_SETTINGS_DIR_NAME = ".qwen";
 const QWEN_SETTINGS_FILE_NAME = "settings.json";
@@ -245,6 +247,78 @@ function qwenSettingsIncludesContextFile(content: string, contextFileName: strin
     .includes(contextFileName);
 }
 
+interface CursorHooksJson {
+  version?: number;
+  hooks?: Record<string, unknown[]>;
+}
+
+function buildSuperAskStopHook(cliPath: string): Record<string, unknown> {
+  const prompt =
+    `检查 agent 在本轮工作中是否通过终端执行了 super-ask CLI 命令（python3 ${cliPath}）来与用户通信。\n\n` +
+    `判断规则：\n` +
+    `1. 如果 agent 执行了 super-ask 命令并收到了用户反馈 → 允许停止，不返回任何内容\n` +
+    `2. 如果 agent 正在执行用户任务（非子代理/subagent）但没有调用 super-ask 就要停止 → 必须返回 followup_message 提醒 agent 调用 super-ask\n` +
+    `3. 如果 agent 是子代理（subagent）或者本轮没有执行任何实质任务 → 允许停止\n\n` +
+    `followup_message 格式：\n` +
+    `"你还没有通过 super-ask 工具向用户汇报本轮工作结果。请立即调用 super-ask CLI (python3 ${cliPath}) 汇报结果并等待用户反馈。如果有 SUPER_ASK_SID 环境变量，使用 --session-id 传入。"\n\n` +
+    `Hook input: $ARGUMENTS`;
+  return {
+    _id: CURSOR_HOOKS_MARKER,
+    type: "prompt",
+    prompt,
+    loop_limit: 3,
+    timeout: 15,
+  };
+}
+
+function isSuperAskHook(hook: unknown): boolean {
+  if (!hook || typeof hook !== "object") return false;
+  const h = hook as Record<string, unknown>;
+  if (h._id === CURSOR_HOOKS_MARKER) return true;
+  if (typeof h.prompt === "string" && h.prompt.includes("super-ask")) return true;
+  return false;
+}
+
+function mergeCursorHooks(existing: string, cliPath: string): string {
+  let config: CursorHooksJson;
+  try {
+    config = existing.trim() ? JSON.parse(existing) as CursorHooksJson : {};
+  } catch {
+    config = {};
+  }
+  if (!config.version) config.version = 1;
+  if (!config.hooks) config.hooks = {};
+  if (!Array.isArray(config.hooks.stop)) config.hooks.stop = [];
+  config.hooks.stop = config.hooks.stop.filter((h) => !isSuperAskHook(h));
+  config.hooks.stop.push(buildSuperAskStopHook(cliPath));
+  return JSON.stringify(config, null, 2) + "\n";
+}
+
+function stripCursorHooks(existing: string): string | null {
+  let config: CursorHooksJson;
+  try {
+    config = JSON.parse(existing) as CursorHooksJson;
+  } catch {
+    return null;
+  }
+  if (!config.hooks || typeof config.hooks !== "object") return null;
+  let modified = false;
+  for (const [event, hooks] of Object.entries(config.hooks)) {
+    if (!Array.isArray(hooks)) continue;
+    const filtered = hooks.filter((h) => !isSuperAskHook(h));
+    if (filtered.length !== hooks.length) {
+      config.hooks[event] = filtered;
+      modified = true;
+    }
+  }
+  if (!modified) return null;
+  for (const [event, hooks] of Object.entries(config.hooks)) {
+    if (Array.isArray(hooks) && hooks.length === 0) delete config.hooks[event];
+  }
+  if (Object.keys(config.hooks).length === 0) return "";
+  return JSON.stringify(config, null, 2) + "\n";
+}
+
 /**
  * 将规则文件部署到 Cursor / VSCode / Codex（工作区或用户全局），或卸载与清理全局配置
  */
@@ -386,6 +460,15 @@ export class DeployManager {
       await stat(dest);
     }, dest);
 
+    const hooksFile = join(root, ".cursor", "hooks.json");
+    const cliPath = join(this.projectRoot, "cli", "super-ask.py");
+
+    await this.runStep(steps, "deploy_hooks", "部署 Cursor hooks.json（stop hook）", async () => {
+      let existing = "";
+      try { existing = await readFileContent(hooksFile); } catch { /* 不存在 */ }
+      await writeFileContent(hooksFile, mergeCursorHooks(existing, cliPath));
+    }, hooksFile);
+
     return steps;
   }
 
@@ -447,6 +530,15 @@ export class DeployManager {
     await this.runStep(steps, "verify_user", "验证 Cursor 用户级规则文件已写入", async () => {
       await stat(dest);
     }, dest);
+
+    const hooksFile = join(homedir(), ".cursor", "hooks.json");
+    const cliPath = join(this.projectRoot, "cli", "super-ask.py");
+
+    await this.runStep(steps, "deploy_hooks_user", "部署用户级 Cursor hooks.json（stop hook）", async () => {
+      let existing = "";
+      try { existing = await readFileContent(hooksFile); } catch { /* 不存在 */ }
+      await writeFileContent(hooksFile, mergeCursorHooks(existing, cliPath));
+    }, hooksFile);
 
     return steps;
   }
@@ -770,6 +862,19 @@ export class DeployManager {
       }
     }, dest);
 
+    const hooksFile = join(root, ".cursor", "hooks.json");
+    await this.runStep(steps, "remove_hooks", "清理 Cursor hooks.json 中的 super-ask hook", async () => {
+      let existing: string;
+      try { existing = await readFileContent(hooksFile); } catch { return; }
+      const result = stripCursorHooks(existing);
+      if (result === null) return;
+      if (result === "") {
+        try { await unlink(hooksFile); } catch { /* 不存在 */ }
+      } else {
+        await writeFileContent(hooksFile, result);
+      }
+    }, hooksFile);
+
     return steps;
   }
 
@@ -802,6 +907,19 @@ export class DeployManager {
         throw e;
       }
     }, dest);
+
+    const hooksFile = join(homedir(), ".cursor", "hooks.json");
+    await this.runStep(steps, "remove_hooks_user", "清理用户级 Cursor hooks.json 中的 super-ask hook", async () => {
+      let existing: string;
+      try { existing = await readFileContent(hooksFile); } catch { return; }
+      const result = stripCursorHooks(existing);
+      if (result === null) return;
+      if (result === "") {
+        try { await unlink(hooksFile); } catch { /* 不存在 */ }
+      } else {
+        await writeFileContent(hooksFile, result);
+      }
+    }, hooksFile);
 
     return steps;
   }
@@ -1268,13 +1386,14 @@ export class DeployManager {
         });
       }
 
-      const codexAgentsMd = join(home, ".codex", "AGENTS.md");
+      const codexDir = join(home, ".codex");
+      const codexAgentsMd = join(codexDir, "AGENTS.md");
       try {
         const content = await readFileContent(codexAgentsMd);
         if (content.includes(CODEX_MARKER_BEGIN)) {
           deployed.push({
             platform: "codex",
-            workspacePath: join(home, ".codex"),
+            workspacePath: codexDir,
             rulesFiles: ["AGENTS.md"],
           });
         }

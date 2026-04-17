@@ -87,6 +87,11 @@ export interface Translations {
   deployManagement: string;
   systemSettings: string;
   about: string;
+  hotKeys: string;
+  shortcutTerminalToggle: string;
+  shortcutSessionListToggle: string;
+  shortcutDocsToggle: string;
+  shortcutSendReply: string;
   aboutLoading: string;
   aboutLoadFailed: string;
   aboutEmpty: string;
@@ -257,6 +262,11 @@ export const zh: Translations = {
   deployManagement: "部署管理",
   systemSettings: "系统设置",
   about: "关于",
+  hotKeys: "快捷键",
+  shortcutTerminalToggle: "打开/关闭终端",
+  shortcutSessionListToggle: "打开/关闭会话列表",
+  shortcutDocsToggle: "打开/关闭文档",
+  shortcutSendReply: "发送回复",
   aboutLoading: "正在加载关于页面内容…",
   aboutLoadFailed: "关于页面内容加载失败。",
   aboutEmpty: "关于页面内容为空（服务器返回了空文件）。",
@@ -418,6 +428,11 @@ export const en: Translations = {
   deployManagement: "Deploy Management",
   systemSettings: "System Settings",
   about: "About",
+  hotKeys: "Hot Keys",
+  shortcutTerminalToggle: "Toggle terminal",
+  shortcutSessionListToggle: "Toggle session list",
+  shortcutDocsToggle: "Toggle docs",
+  shortcutSendReply: "Send reply",
   aboutLoading: "Loading about page content…",
   aboutLoadFailed: "Failed to load about page content.",
   aboutEmpty: "About page content is empty (the server returned an empty file).",

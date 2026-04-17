@@ -108,3 +108,4 @@ python3 "{{SUPER_ASK_CLI}}" \
 - **options 可选**：给出选项帮助用户快速回复
 - **source 字段**：传入 `codex` 标识来源
 - **workspace-root 字段**：必须传入当前工作区的绝对路径
+- **subagent不要调用**：subagent不要调用 `super-ask` 工具，仅主agent调用 `super-ask`
