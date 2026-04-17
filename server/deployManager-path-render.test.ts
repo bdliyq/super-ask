@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -78,7 +78,7 @@ test("deployVscode renders path placeholders before writing instructions", async
   }
 });
 
-test("deployCodex injects rendered path placeholders into AGENTS", async () => {
+test("deployCodex injects rendered AGENTS rules without kit artifacts", async () => {
   const projectRoot = await makeProjectRoot();
   const workspace = await makeWorkspace();
 
@@ -92,6 +92,24 @@ test("deployCodex injects rendered path placeholders into AGENTS", async () => {
 
     assert.match(rendered, /<!-- SUPER-ASK-BEGIN -->/);
     assert.match(rendered, new RegExp(expectedRendered(projectRoot).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    await assert.rejects(stat(join(workspace, ".codex", "hooks.json")), { code: "ENOENT" });
+    await assert.rejects(stat(join(workspace, "scripts", "codex-stop-guard.sh")), { code: "ENOENT" });
+
+    const status = await manager.checkStatus(workspace, "workspace");
+    assert.deepEqual(status.deployed, [
+      {
+        platform: "codex",
+        workspacePath: workspace,
+        rulesFiles: ["AGENTS.md"],
+      },
+    ]);
+
+    await manager.undeployCodex(workspace);
+
+    const cleaned = await readFile(join(workspace, "AGENTS.md"), "utf-8");
+    assert.doesNotMatch(cleaned, /<!-- SUPER-ASK-BEGIN -->/);
+    await assert.rejects(stat(join(workspace, ".codex", "hooks.json")), { code: "ENOENT" });
+    await assert.rejects(stat(join(workspace, "scripts", "codex-stop-guard.sh")), { code: "ENOENT" });
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
     await rm(workspace, { recursive: true, force: true });
@@ -427,7 +445,7 @@ test("deployQwenUser writes to ~/.qwen and undeployQwenUser restores prior setti
   }
 });
 
-test("deployCodexUser renders blocking production template and writes both Codex timeout keys", async () => {
+test("deployCodexUser renders blocking production template and keeps Codex deployment rules-only", async () => {
   const fakeHome = await mkdtemp(join(tmpdir(), "super-ask-codex-home-"));
   const originalHome = process.env.HOME;
 
@@ -454,6 +472,24 @@ test("deployCodexUser renders blocking production template and writes both Codex
     assert.match(renderedConfig, /background_terminal_max_timeout\s*=\s*86400000/);
     assert.match(renderedConfig, /background_terminal_timeout\s*=\s*86400000/);
     assert.match(renderedConfig, /\[projects\."\/tmp\/demo"\]/);
+    await assert.rejects(stat(join(fakeHome, ".codex", "hooks.json")), { code: "ENOENT" });
+    await assert.rejects(stat(join(fakeHome, ".codex", "scripts", "codex-stop-guard.sh")), { code: "ENOENT" });
+
+    const status = await manager.checkStatus("", "user");
+    assert.deepEqual(status.deployed, [
+      {
+        platform: "codex",
+        workspacePath: join(fakeHome, ".codex"),
+        rulesFiles: ["AGENTS.md"],
+      },
+    ]);
+
+    await manager.undeployCodexUser();
+
+    const cleanedAgents = await readFile(join(fakeHome, ".codex", "AGENTS.md"), "utf-8");
+    assert.doesNotMatch(cleanedAgents, /<!-- SUPER-ASK-BEGIN -->/);
+    await assert.rejects(stat(join(fakeHome, ".codex", "hooks.json")), { code: "ENOENT" });
+    await assert.rejects(stat(join(fakeHome, ".codex", "scripts", "codex-stop-guard.sh")), { code: "ENOENT" });
   } finally {
     process.env.HOME = originalHome;
     await rm(fakeHome, { recursive: true, force: true });

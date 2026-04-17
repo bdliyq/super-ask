@@ -86,6 +86,10 @@ const DEPLOY_STEP_NAME_EN: Record<string, string> = {
   "删除 logs 目录": "Delete logs directory",
   "删除 config.json": "Delete config.json",
   "删除 super-ask.pid": "Delete super-ask.pid",
+  "部署 Cursor hooks.json（stop hook）": "Deploy Cursor hooks.json (stop hook)",
+  "部署用户级 Cursor hooks.json（stop hook）": "Deploy user-level Cursor hooks.json (stop hook)",
+  "清理 Cursor hooks.json 中的 super-ask hook": "Remove super-ask hook from Cursor hooks.json",
+  "清理用户级 Cursor hooks.json 中的 super-ask hook": "Remove super-ask hook from user-level Cursor hooks.json",
 };
 
 const DEPLOY_STEP_ID_LABELS: Partial<Record<DeployStep["id"], Record<Locale, string>>> = {
