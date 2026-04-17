@@ -35,7 +35,7 @@ test("FileDrawer shows binary notice for binary files", () => {
   assert.match(html, /file-drawer__binary-notice/);
 });
 
-test("FileDrawer shows markdown preview/source toggle for .md files", () => {
+test("FileDrawer shows Edit/Preview toggle for .md files", () => {
   const html = renderToStaticMarkup(
     <FileDrawer
       file={makeFile({
@@ -46,8 +46,9 @@ test("FileDrawer shows markdown preview/source toggle for .md files", () => {
       onClose={() => {}}
     />,
   );
+  assert.match(html, /Edit/);
   assert.match(html, /Preview/);
-  assert.match(html, /Markdown/);
+  assert.doesNotMatch(html, /Source/);
   assert.match(html, /file-drawer__mode-toggle/);
 });
 
@@ -68,11 +69,13 @@ test("FileDrawer shows truncated notice when file is truncated", () => {
   assert.match(html, /file-drawer__truncated-notice/);
 });
 
-test("FileDrawer renders null when no file provided", () => {
+test("FileDrawer renders empty state when no file provided", () => {
   const html = renderToStaticMarkup(
     <FileDrawer file={null} onClose={() => {}} />,
   );
-  assert.equal(html, "");
+  assert.match(html, /file-drawer/);
+  assert.match(html, /Document Viewer/);
+  assert.match(html, /file path/i);
 });
 
 test("FileDrawer shows file size", () => {

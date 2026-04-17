@@ -8,7 +8,7 @@ async function getHighlighter(): Promise<Highlighter> {
     highlighterPromise = (async () => {
       const { createHighlighter } = await import("shiki");
       return createHighlighter({
-        themes: ["github-dark", "github-light"],
+        themes: ["one-dark-pro", "github-light"],
         langs: [],
       });
     })();
@@ -19,7 +19,7 @@ async function getHighlighter(): Promise<Highlighter> {
 export async function highlightCode(
   code: string,
   lang: string,
-  theme: "github-dark" | "github-light" = "github-dark",
+  theme: "one-dark-pro" | "github-light" = "one-dark-pro",
 ): Promise<string> {
   const hl = await getHighlighter();
   if (lang && lang !== "plaintext" && !loadedLangs.has(lang)) {

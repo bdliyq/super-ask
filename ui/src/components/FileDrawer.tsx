@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 import type { ReadFileResponse } from "@shared/types";
 import { withAuthHeaders } from "../auth";
 import { highlightCode, isMarkdownFile } from "../utils/shikiHighlighter";
@@ -9,6 +9,33 @@ const WIDTH_KEY = "super-ask-file-drawer-width";
 const DEFAULT_WIDTH_PCT = 50;
 const MIN_WIDTH_PCT = 20;
 const MAX_WIDTH_PCT = 90;
+const WHEEL_LINE_PX = 16;
+
+function isHTMLElement(value: EventTarget | null): value is HTMLElement {
+  return value instanceof HTMLElement;
+}
+
+function canScrollHorizontally(el: HTMLElement | null): boolean {
+  return !!el && el.scrollWidth > el.clientWidth;
+}
+
+function getHorizontalWheelDelta(event: ReactWheelEvent<HTMLDivElement>, pageWidth: number): number {
+  const rawDelta = Math.abs(event.deltaX) > 0 && Math.abs(event.deltaY) < 1
+    ? event.deltaX
+    : event.shiftKey && Math.abs(event.deltaY) > 0
+      ? event.deltaY
+      : 0;
+
+  if (rawDelta === 0) return 0;
+
+  const scale = event.deltaMode === 1
+    ? WHEEL_LINE_PX
+    : event.deltaMode === 2
+      ? Math.max(pageWidth, 1)
+      : 1;
+
+  return rawDelta * scale;
+}
 
 function loadWidth(): number {
   try {
@@ -31,20 +58,33 @@ type ViewMode = "preview" | "source" | "edit";
 
 export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
   const { locale } = useI18n();
-  const [viewMode, setViewMode] = useState<ViewMode>("preview");
+  const [viewMode, setViewMode] = useState<ViewMode>("edit");
   const [highlightedHtml, setHighlightedHtml] = useState("");
   const [highlighting, setHighlighting] = useState(false);
   const [widthPct, setWidthPct] = useState(loadWidth);
   const [maximized, setMaximized] = useState(false);
   const [editContent, setEditContent] = useState("");
+  const [editHighlightHtml, setEditHighlightHtml] = useState("");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const editorTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorHighlightRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const startX = useRef(0);
   const startPct = useRef(0);
   const prevPathRef = useRef("");
+  const savedContentRef = useRef("");
+
+  const undoStack = useRef<string[]>([]);
+  const redoStack = useRef<string[]>([]);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const isUndoRedo = useRef(false);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
 
   const isMd = file ? isMarkdownFile(file.lang, file.resolvedPath) : false;
   const fileName = file?.resolvedPath.split("/").pop() ?? "";
@@ -52,10 +92,16 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
   useEffect(() => {
     if (file?.resolvedPath !== prevPathRef.current) {
       prevPathRef.current = file?.resolvedPath ?? "";
-      setViewMode("preview");
+      savedContentRef.current = file?.content ?? "";
+      setViewMode("edit");
       setHighlightedHtml("");
+      setEditHighlightHtml("");
       setEditContent(file?.content ?? "");
       setDirty(false);
+      undoStack.current = [];
+      redoStack.current = [];
+      setCanUndo(false);
+      setCanRedo(false);
     }
   }, [file?.resolvedPath, file?.content]);
 
@@ -71,13 +117,141 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
     let cancelled = false;
     setHighlighting(true);
     const theme = document.documentElement.getAttribute("data-theme") === "dark"
-      ? "github-dark" as const
+      ? "one-dark-pro" as const
       : "github-light" as const;
     highlightCode(file.content, file.lang ?? "plaintext", theme).then((html) => {
       if (!cancelled) { setHighlightedHtml(html); setHighlighting(false); }
     });
     return () => { cancelled = true; };
   }, [file, isMd, viewMode]);
+
+  useEffect(() => {
+    if (!file || file.isBinary || viewMode !== "edit") {
+      setEditHighlightHtml("");
+      return;
+    }
+    const lang = file.lang ?? "plaintext";
+    if (!lang || lang === "plaintext") return;
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const theme = document.documentElement.getAttribute("data-theme") === "dark"
+        ? "one-dark-pro" as const
+        : "github-light" as const;
+      highlightCode(editContent, lang, theme).then((html) => {
+        if (!cancelled) setEditHighlightHtml(html);
+      });
+    }, 200);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [editContent, file, viewMode]);
+
+  const pushUndoSnapshot = useCallback((prev: string) => {
+    undoStack.current.push(prev);
+    if (undoStack.current.length > 200) undoStack.current.splice(0, undoStack.current.length - 200);
+    redoStack.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }, []);
+
+  const updateDirtyState = useCallback((nextContent: string) => {
+    setDirty(nextContent !== savedContentRef.current);
+  }, []);
+
+  const handleContentChange = useCallback((next: string) => {
+    if (isUndoRedo.current) return;
+    const prev = editContent;
+    setEditContent(next);
+    updateDirtyState(next);
+    clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(() => pushUndoSnapshot(prev), 400);
+  }, [editContent, pushUndoSnapshot, updateDirtyState]);
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.current.length === 0) return;
+    const prev = undoStack.current.pop()!;
+    redoStack.current.push(editContent);
+    isUndoRedo.current = true;
+    setEditContent(prev);
+    updateDirtyState(prev);
+    setCanUndo(undoStack.current.length > 0);
+    setCanRedo(true);
+    requestAnimationFrame(() => { isUndoRedo.current = false; });
+  }, [editContent, updateDirtyState]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.current.length === 0) return;
+    const next = redoStack.current.pop()!;
+    undoStack.current.push(editContent);
+    isUndoRedo.current = true;
+    setEditContent(next);
+    updateDirtyState(next);
+    setCanUndo(true);
+    setCanRedo(redoStack.current.length > 0);
+    requestAnimationFrame(() => { isUndoRedo.current = false; });
+  }, [editContent, updateDirtyState]);
+
+  const syncEditorScroll = useCallback(() => {
+    const ta = editorTextareaRef.current;
+    const pre = editorHighlightRef.current;
+    if (ta && pre) {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    }
+  }, []);
+
+  const handleEditorScroll = useCallback(() => {
+    syncEditorScroll();
+  }, [syncEditorScroll]);
+
+  const resolveHorizontalScrollOwner = useCallback((target: EventTarget | null): HTMLElement | null => {
+    const body = bodyRef.current;
+    if (!body) return null;
+
+    if (viewMode === "edit") {
+      return editorTextareaRef.current;
+    }
+
+    let node: HTMLElement | null = isHTMLElement(target) ? target : null;
+    while (node) {
+      if (canScrollHorizontally(node)) {
+        return node;
+      }
+      if (node === body) {
+        break;
+      }
+      node = node.parentElement;
+    }
+
+    const selectors = isMd && viewMode === "preview"
+      ? [".file-drawer__markdown pre", ".file-drawer__markdown .markdown-mermaid"]
+      : [".file-drawer__code pre", ".file-drawer__plain"];
+
+    const candidates: HTMLElement[] = [];
+    for (const selector of selectors) {
+      candidates.push(...Array.from(body.querySelectorAll<HTMLElement>(selector)));
+    }
+    const scrollableCandidates = Array.from(new Set(candidates)).filter((el) => canScrollHorizontally(el));
+
+    return scrollableCandidates.length === 1 ? scrollableCandidates[0] : null;
+  }, [isMd, viewMode]);
+
+  const handleBodyWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    const delta = getHorizontalWheelDelta(event, bodyRef.current?.clientWidth ?? 0);
+    if (delta === 0) return;
+
+    const owner = resolveHorizontalScrollOwner(event.target);
+    if (!owner) return;
+
+    const prevLeft = owner.scrollLeft;
+    owner.scrollLeft = prevLeft + delta;
+    if (owner === editorTextareaRef.current) {
+      syncEditorScroll();
+    }
+
+    if (owner.scrollLeft !== prevLeft) {
+      event.preventDefault();
+    }
+  }, [resolveHorizontalScrollOwner, syncEditorScroll]);
 
   useEffect(() => {
     if (!file) return;
@@ -87,10 +261,15 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
         e.preventDefault();
         handleSave();
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && viewMode === "edit") {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [file, onClose, viewMode]);
+  }, [file, onClose, viewMode, handleUndo, handleRedo]);
 
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     if (maximized) return;
@@ -123,7 +302,11 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
   const toggleMaximize = useCallback(() => setMaximized((v) => !v), []);
 
   const handleCopyPath = useCallback(() => {
-    if (file) navigator.clipboard.writeText(file.resolvedPath).catch(() => {});
+    if (!file) return;
+    navigator.clipboard.writeText(file.resolvedPath).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
   }, [file]);
 
   const handleSave = useCallback(async () => {
@@ -136,6 +319,7 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
         body: JSON.stringify({ path: file.resolvedPath, content: editContent }),
       });
       if (res.ok) {
+        savedContentRef.current = editContent;
         setDirty(false);
       } else {
         const data = await res.json().catch(() => ({}));
@@ -148,15 +332,27 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
     }
   }, [file, editContent, saving]);
 
-  const switchToEdit = useCallback(() => {
-    setEditContent(file?.content ?? "");
-    setDirty(false);
-    setViewMode("edit");
-  }, [file?.content]);
-
-  if (!file) return null;
-
   const effectiveWidth = maximized ? "100%" : `${widthPct}%`;
+
+  if (!file) {
+    return (
+      <div ref={containerRef} className={`file-drawer${maximized ? " file-drawer--maximized" : ""}`} style={{ width: effectiveWidth }}>
+        {!maximized && <div className="file-drawer__resize-handle" onMouseDown={onResizeStart} />}
+        <div className="file-drawer__header">
+          <div className="file-drawer__title-row">
+            <span className="file-drawer__filename">{locale === "zh" ? "文档查看器" : "Document Viewer"}</span>
+          </div>
+          <div className="file-drawer__actions">
+          </div>
+        </div>
+        <div ref={bodyRef} className="file-drawer__body" onWheelCapture={handleBodyWheel}>
+          <div className="file-drawer__binary-notice">
+            {locale === "zh" ? "点击消息中的文件路径打开文件" : "Click a file path in messages to open a file"}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -182,8 +378,15 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
           </span>
         </div>
         <div className="file-drawer__actions">
-          {isMd && !file.isBinary && viewMode !== "edit" && (
+          {isMd && !file.isBinary && (
             <div className="file-drawer__mode-toggle">
+              <button
+                type="button"
+                className={`file-drawer__mode-btn${viewMode === "edit" ? " file-drawer__mode-btn--active" : ""}`}
+                onClick={() => setViewMode("edit")}
+              >
+                {locale === "zh" ? "编辑" : "Edit"}
+              </button>
               <button
                 type="button"
                 className={`file-drawer__mode-btn${viewMode === "preview" ? " file-drawer__mode-btn--active" : ""}`}
@@ -191,47 +394,59 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
               >
                 Preview
               </button>
-              <button
-                type="button"
-                className={`file-drawer__mode-btn${viewMode === "source" ? " file-drawer__mode-btn--active" : ""}`}
-                onClick={() => setViewMode("source")}
-              >
-                Markdown
-              </button>
             </div>
           )}
-          {!file.isBinary && !file.truncated && viewMode !== "edit" && (
-            <button
-              type="button"
-              className="file-drawer__icon-btn"
-              title={locale === "zh" ? "编辑" : "Edit"}
-              onClick={switchToEdit}
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5Z" />
-              </svg>
-            </button>
-          )}
-          {viewMode === "edit" && (
+          
+          {!file.isBinary && !file.truncated && viewMode === "edit" && (
             <>
               <button
                 type="button"
-                className="file-drawer__save-btn"
-                disabled={saving || !dirty}
-                onClick={handleSave}
+                className="file-drawer__icon-btn"
+                disabled={!canUndo}
+                onClick={handleUndo}
+                title={locale === "zh" ? "撤销 (⌘Z)" : "Undo (⌘Z)"}
               >
-                {saving
-                  ? (locale === "zh" ? "保存中..." : "Saving...")
-                  : (locale === "zh" ? "保存" : "Save")}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 7h7a3.5 3.5 0 0 1 0 7H8" />
+                  <path d="M6 4 3 7l3 3" />
+                </svg>
               </button>
               <button
                 type="button"
-                className="file-drawer__mode-btn"
-                onClick={() => setViewMode(isMd ? "preview" : "source")}
+                className="file-drawer__icon-btn"
+                disabled={!canRedo}
+                onClick={handleRedo}
+                title={locale === "zh" ? "重做 (⌘⇧Z)" : "Redo (⌘⇧Z)"}
               >
-                {locale === "zh" ? "取消编辑" : "Cancel"}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M13 7H6a3.5 3.5 0 0 0 0 7h2" />
+                  <path d="M10 4l3 3-3 3" />
+                </svg>
               </button>
             </>
+          )}
+          {!file.isBinary && !file.truncated && (
+            <button
+              type="button"
+              className="file-drawer__icon-btn"
+              disabled={saving || !dirty}
+              onClick={handleSave}
+              title={saving
+                ? (locale === "zh" ? "保存中..." : "Saving...")
+                : (locale === "zh" ? "保存 (⌘S)" : "Save (⌘S)")}
+            >
+              {saving ? (
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}>
+                  <path d="M8 1v3M8 12v3M1 8h3M12 8h3" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke={dirty ? "var(--accent)" : "currentColor"} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 1.5h8.586a1 1 0 0 1 .707.293l2.414 2.414a1 1 0 0 1 .293.707V13a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 13V3A1.5 1.5 0 0 1 3 1.5Z" />
+                  <path d="M5 1.5v3.5h6V1.5" />
+                  <rect x="4" y="8.5" width="8" height="4.5" rx="0.5" />
+                </svg>
+              )}
+            </button>
           )}
           <button
             type="button"
@@ -239,10 +454,16 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
             title={locale === "zh" ? "复制路径" : "Copy path"}
             onClick={handleCopyPath}
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="5" y="5" width="9" height="9" rx="1.5" />
-              <path d="M3 11V3a1.5 1.5 0 0 1 1.5-1.5H11" />
-            </svg>
+            {copied ? (
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#4caf50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 8 6.5 11.5 13 5" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="5" y="5" width="9" height="9" rx="1.5" />
+                <path d="M3 11V3a1.5 1.5 0 0 1 1.5-1.5H11" />
+              </svg>
+            )}
           </button>
           {onOpenInFinder && (
             <button
@@ -274,16 +495,6 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
               </svg>
             )}
           </button>
-          <button
-            type="button"
-            className="file-drawer__close"
-            title={locale === "zh" ? "关闭" : "Close"}
-            onClick={onClose}
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
-          </button>
         </div>
       </div>
       <div className="file-drawer__path" title={file.resolvedPath}>
@@ -296,7 +507,7 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
             : `File too large (${(file.size / (1024 * 1024)).toFixed(1)} MB), showing first 2 MB`}
         </div>
       )}
-      <div className="file-drawer__body">
+      <div ref={bodyRef} className="file-drawer__body" onWheelCapture={handleBodyWheel}>
         {file.isBinary ? (
           <div className="file-drawer__binary-notice">
             {locale === "zh" ? "二进制文件，无法预览" : "Binary file, cannot preview"}
@@ -311,12 +522,24 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
             )}
           </div>
         ) : viewMode === "edit" ? (
-          <textarea
-            className="file-drawer__editor"
-            value={editContent}
-            onChange={(e) => { setEditContent(e.target.value); setDirty(true); }}
-            spellCheck={false}
-          />
+          <div className="file-drawer__editor-wrapper">
+            {editHighlightHtml && (
+              <div
+                ref={editorHighlightRef}
+                className="file-drawer__editor-highlight shiki-container"
+                aria-hidden="true"
+                dangerouslySetInnerHTML={{ __html: editHighlightHtml }}
+              />
+            )}
+            <textarea
+              ref={editorTextareaRef}
+              className={`file-drawer__editor${editHighlightHtml ? " file-drawer__editor--transparent" : ""}`}
+              value={editContent}
+              onChange={(e) => handleContentChange(e.target.value)}
+              onScroll={handleEditorScroll}
+              spellCheck={false}
+            />
+          </div>
         ) : isMd && viewMode === "preview" ? (
           <div className="file-drawer__markdown markdown-body">
             <MarkdownContent source={file.content ?? ""} />
