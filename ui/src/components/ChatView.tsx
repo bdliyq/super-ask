@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { FileAttachment, HistoryEntry, SessionInfo } from "@shared/types";
+import type { FileAttachment, HistoryEntry, ReadFileResponse, SessionInfo } from "@shared/types";
 import { withAuthHeaders } from "../auth";
 import { useI18n } from "../i18n";
 import { CopyButton } from "./CopyButton";
+import { FileDrawer } from "./FileDrawer";
 import { InteractionCard, type QuotedRef } from "./InteractionCard";
 import { ReplyBox } from "./ReplyBox";
 import { RequestStatusBadge, SourceBadge } from "./SessionMetaBadges";
@@ -57,6 +58,7 @@ export function ChatView({
   const pinPanelRef = useRef<HTMLDivElement>(null);
   const pinToggleRef = useRef<HTMLButtonElement>(null);
   const [quotedRefs, setQuotedRefs] = useState<QuotedRef[]>([]);
+  const [fileDrawerData, setFileDrawerData] = useState<ReadFileResponse | null>(null);
   const [pinPanelSessionId, setPinPanelSessionId] = useState<string | null>(null);
   const showPinPanel = pinPanelSessionId === session?.chatSessionId;
   const setShowPinPanel = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
@@ -135,19 +137,45 @@ export function ChatView({
 
   const handleOpenPath = useCallback(async (rawPath: string) => {
     try {
-      const res = await fetch("/api/open-path", {
-        method: "POST",
-        headers: withAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ path: rawPath, workspaceRoot: session?.workspaceRoot }),
+      const params = new URLSearchParams({ path: rawPath });
+      if (session?.workspaceRoot) params.set("workspaceRoot", session.workspaceRoot);
+      const res = await fetch(`/api/read-file?${params}`, {
+        headers: withAuthHeaders(),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        console.warn("[open-path]", data.error || res.statusText);
+      if (res.ok) {
+        const data = (await res.json()) as ReadFileResponse;
+        if (data.isBinary) {
+          await fetch("/api/open-path", {
+            method: "POST",
+            headers: withAuthHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ path: rawPath, workspaceRoot: session?.workspaceRoot }),
+          });
+        } else {
+          setFileDrawerData(data);
+        }
+      } else {
+        await fetch("/api/open-path", {
+          method: "POST",
+          headers: withAuthHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ path: rawPath, workspaceRoot: session?.workspaceRoot }),
+        });
       }
     } catch (err) {
       console.warn("[open-path]", err);
     }
   }, [session?.workspaceRoot]);
+
+  const handleOpenInFinder = useCallback(async (resolvedPath: string) => {
+    try {
+      await fetch("/api/open-path", {
+        method: "POST",
+        headers: withAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ path: resolvedPath }),
+      });
+    } catch (err) {
+      console.warn("[open-in-finder]", err);
+    }
+  }, []);
 
   useEffect(() => {
     if (showTagInput) {
@@ -391,6 +419,13 @@ export function ChatView({
               });
             })()}
           </div>
+        )}
+        {fileDrawerData && (
+          <FileDrawer
+            file={fileDrawerData}
+            onClose={() => setFileDrawerData(null)}
+            onOpenInFinder={handleOpenInFinder}
+          />
         )}
       </div>
     </div>

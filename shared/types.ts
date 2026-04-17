@@ -180,7 +180,7 @@ export interface SuperAskConfig {
 export const DEFAULT_CONFIG: SuperAskConfig = {
   port: 19960,
   host: "127.0.0.1",
-  sessionTimeout: 86400000, // 24h
+  sessionTimeout: 604_800_000, // 7 days
   maxSessions: 100,
 };
 
@@ -248,4 +248,13 @@ export interface OpenPathResponse {
   success: boolean;
   resolvedPath: string;
   type: "file" | "directory";
+}
+
+export interface ReadFileResponse {
+  content: string | null;
+  resolvedPath: string;
+  size: number;
+  lang: string | null;
+  isBinary: boolean;
+  truncated: boolean;
 }

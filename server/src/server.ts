@@ -721,6 +721,88 @@ export function startSuperAsk(
       return;
     }
 
+    // GET /api/read-file — 读取文件内容用于预览
+    if (method === "GET" && pathname === "/api/read-file") {
+      if (!requireAuth(req, res)) return;
+      const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+      const rawPath = url.searchParams.get("path") ?? "";
+      const wsRoot = url.searchParams.get("workspaceRoot") ?? "";
+      if (!rawPath.trim()) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "path 参数必填" }));
+        return;
+      }
+      let resolved: string;
+      try {
+        resolved = resolveOpenPath(rawPath.trim(), wsRoot.trim() || undefined);
+      } catch (e: unknown) {
+        const code = e instanceof Error ? e.message : "INVALID_PATH";
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({
+          error: code === "MISSING_WORKSPACE_ROOT" ? "相对路径需要 workspaceRoot" : "无效路径",
+        }));
+        return;
+      }
+      try {
+        const st = await stat(resolved);
+        if (st.isDirectory()) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.end(JSON.stringify({ error: "不支持预览目录" }));
+          return;
+        }
+        const fileSize = st.size;
+        const MAX_READ = 2 * 1024 * 1024;
+        const truncated = fileSize > MAX_READ;
+        const probe = await readFile(resolved, { encoding: null, flag: "r" });
+        const slice = truncated ? probe.subarray(0, MAX_READ) : probe;
+        const isBinary = slice.includes(0);
+        const ext = extname(resolved).toLowerCase().replace(/^\./, "");
+        const langMap: Record<string, string> = {
+          ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
+          mjs: "javascript", cjs: "javascript", mts: "typescript",
+          py: "python", pyi: "python", rb: "ruby",
+          go: "go", rs: "rust", c: "c", cpp: "cpp", h: "c", hpp: "cpp",
+          java: "java", kt: "kotlin", swift: "swift", cs: "csharp",
+          css: "css", scss: "scss", less: "less",
+          html: "html", htm: "html", vue: "vue", svelte: "svelte",
+          json: "json", yaml: "yaml", yml: "yaml", toml: "toml",
+          xml: "xml", svg: "xml",
+          sh: "bash", bash: "bash", zsh: "bash", fish: "fish",
+          ps1: "powershell", bat: "batch",
+          sql: "sql", graphql: "graphql", gql: "graphql",
+          md: "markdown", mdx: "mdx", markdown: "markdown",
+          dockerfile: "dockerfile", makefile: "makefile",
+          ini: "ini", env: "ini", gitignore: "ini", editorconfig: "ini",
+          txt: "plaintext", log: "plaintext", csv: "plaintext",
+          r: "r", lua: "lua", perl: "perl", php: "php",
+          dart: "dart", ex: "elixir", exs: "elixir", erl: "erlang",
+          zig: "zig", nim: "nim", v: "v",
+          tf: "hcl", hcl: "hcl",
+          proto: "protobuf",
+          mdc: "markdown",
+        };
+        const lang = isBinary ? null : (langMap[ext] ?? null);
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({
+          content: isBinary ? null : slice.toString("utf-8"),
+          resolvedPath: resolved,
+          size: fileSize,
+          lang,
+          isBinary,
+          truncated,
+        }));
+      } catch {
+        res.statusCode = 404;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "文件不存在或无法读取" }));
+      }
+      return;
+    }
+
     // GET /api/predefined-msgs — 获取预定义消息列表
     if (method === "GET" && pathname === "/api/predefined-msgs") {
       if (!requireAuth(req, res)) return;
