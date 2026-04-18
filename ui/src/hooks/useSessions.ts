@@ -304,6 +304,20 @@ export function useSessions() {
       return;
     }
 
+    if (msg.type === "auto_reply_update") {
+      setSessions((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(msg.chatSessionId);
+        if (!existing) return prev;
+        next.set(msg.chatSessionId, {
+          ...existing,
+          autoReplyTemplateId: msg.autoReplyTemplateId,
+        });
+        return next;
+      });
+      return;
+    }
+
     if (msg.type === "session_deleted") {
       setSessions((prev) => {
         const next = new Map(prev);

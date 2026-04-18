@@ -56,7 +56,8 @@ export type WsServerMessage =
   | WsPinUpdate
   | WsPinnedSessionOrderUpdate
   | WsTagUpdate
-  | WsReplyResult;
+  | WsReplyResult
+  | WsAutoReplyUpdate;
 
 export type WsClientMessage = WsReply | WsDeleteSession;
 
@@ -135,6 +136,12 @@ export interface WsTagUpdate {
   tags: string[];
 }
 
+export interface WsAutoReplyUpdate {
+  type: "auto_reply_update";
+  chatSessionId: string;
+  autoReplyTemplateId: string | null;
+}
+
 // === Session / History ===
 
 export interface SessionInfo {
@@ -154,6 +161,8 @@ export interface SessionInfo {
   pinnedIndices?: number[];
   /** 用户自定义标签 */
   tags?: string[];
+  /** 自动回复模板 ID，非空时该会话开启自动回复 */
+  autoReplyTemplateId?: string | null;
 }
 
 export interface HistoryEntry {
@@ -248,6 +257,11 @@ export interface OpenPathResponse {
   success: boolean;
   resolvedPath: string;
   type: "file" | "directory";
+}
+
+export interface AutoReplyTemplate {
+  id: string;
+  text: string;
 }
 
 export interface ReadFileResponse {

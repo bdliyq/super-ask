@@ -895,6 +895,82 @@ export function startSuperAsk(
       return;
     }
 
+    // GET /api/auto-reply-templates — 获取自动回复模板
+    if (method === "GET" && pathname === "/api/auto-reply-templates") {
+      if (!requireAuth(req, res)) return;
+      const filePath = join(SUPER_ASK_DIR, "auto-reply-templates.json");
+      try {
+        const raw = await readFile(filePath, "utf-8");
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(raw);
+      } catch {
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end("[]");
+      }
+      return;
+    }
+
+    // PUT /api/auto-reply-templates — 保存自动回复模板
+    if (method === "PUT" && pathname === "/api/auto-reply-templates") {
+      if (!requireAuth(req, res)) return;
+      let parsed: unknown;
+      try {
+        parsed = await readJsonBody(req, MAX_BODY_BYTES);
+      } catch {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "请求体无效或过大" }));
+        return;
+      }
+      if (!Array.isArray(parsed)) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "请求体须为 JSON 数组" }));
+        return;
+      }
+      const filePath = join(SUPER_ASK_DIR, "auto-reply-templates.json");
+      try {
+        await mkdir(SUPER_ASK_DIR, { recursive: true });
+        await writeFile(filePath, JSON.stringify(parsed, null, 2), "utf-8");
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ success: true }));
+      } catch (err) {
+        console.error("[server] 保存自动回复模板失败:", err);
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "写入文件失败" }));
+      }
+      return;
+    }
+
+    // POST /api/auto-reply — 设置/关闭会话的自动回复
+    if (method === "POST" && pathname === "/api/auto-reply") {
+      if (!requireAuth(req, res)) return;
+      let parsed: unknown;
+      try { parsed = await readJsonBody(req, 4096); } catch {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: "无效请求体" }));
+        return;
+      }
+      const b = parsed as Record<string, unknown>;
+      const sid = typeof b.chatSessionId === "string" ? b.chatSessionId : "";
+      const templateId = b.templateId === null || typeof b.templateId === "string" ? (b.templateId as string | null) : undefined;
+      if (!sid || templateId === undefined) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "缺少 chatSessionId 或 templateId" }));
+        return;
+      }
+      const ok = sessionManager.setAutoReply(sid, templateId);
+      res.statusCode = ok ? 200 : 404;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ success: ok }));
+      return;
+    }
+
     // POST /api/server/restart — 重启服务端进程
     if (method === "POST" && pathname === "/api/server/restart") {
       if (!requireAuth(req, res)) return;

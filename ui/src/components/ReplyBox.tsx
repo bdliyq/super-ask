@@ -17,6 +17,7 @@ import {
   type SlashCommand,
   type SlashMenuHandle,
 } from "./SlashMenu";
+import type { AutoReplyTemplate } from "./SystemSettings";
 
 /** 待上传的本地文件（含可选图片预览） */
 interface PendingFile {
@@ -40,6 +41,9 @@ interface ReplyBoxProps {
   onClearQuotedRefs?: () => void;
   onSend: (text: string, attachments?: FileAttachment[]) => Promise<void>;
   connected?: boolean;
+  autoReplyTemplateId?: string | null;
+  autoReplyTemplates?: AutoReplyTemplate[];
+  onSetAutoReply?: (templateId: string | null) => void;
 }
 
 const DRAFT_PREFIX = "super-ask-draft-";
@@ -105,7 +109,7 @@ function truncateText(text: string, maxLen: number): string {
   return single.length > maxLen ? single.slice(0, maxLen) + "…" : single;
 }
 
-export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [], onRemoveQueuedReply, quotedRefs = [], onRemoveQuotedRef, onClearQuotedRefs, onSend, connected }: ReplyBoxProps) {
+export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [], onRemoveQueuedReply, quotedRefs = [], onRemoveQuotedRef, onClearQuotedRefs, onSend, connected, autoReplyTemplateId, autoReplyTemplates = [], onSetAutoReply }: ReplyBoxProps) {
   const { t, locale } = useI18n();
   const draftKey = DRAFT_PREFIX + chatSessionId;
   const [text, setText] = useState(() => {
@@ -118,17 +122,28 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
   const [showSlash, setShowSlash] = useState(false);
   const [slashFilter, setSlashFilter] = useState("");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [showAutoReplyMenu, setShowAutoReplyMenu] = useState(false);
+  const autoReplyMenuRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const slashMenuRef = useRef<SlashMenuHandle | null>(null);
   const prevDraftKeyRef = useRef(draftKey);
 
+  const undoStackRef = useRef<string[]>([]);
+  const redoStackRef = useRef<string[]>([]);
+  const lastSavedRef = useRef("");
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
   const disabled = false;
 
   useEffect(() => {
     if (prevDraftKeyRef.current !== draftKey) {
-      setText(localStorage.getItem(draftKey) || "");
+      const draft = localStorage.getItem(draftKey) || "";
+      setText(draft);
       prevDraftKeyRef.current = draftKey;
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      lastSavedRef.current = draft;
       return;
     }
     if (text) {
@@ -156,6 +171,17 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
       requestAnimationFrame(() => taRef.current?.focus());
     }
   }, [quotedRefs.length]);
+
+  useEffect(() => {
+    if (!showAutoReplyMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (autoReplyMenuRef.current && !autoReplyMenuRef.current.contains(e.target as Node)) {
+        setShowAutoReplyMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showAutoReplyMenu]);
 
   const removePending = useCallback((key: string) => {
     setAttachments((prev) => prev.filter((p) => p.key !== key));
@@ -310,6 +336,9 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
       setAttachments([]);
       setText("");
       localStorage.removeItem(draftKey);
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      lastSavedRef.current = "";
       taRef.current?.focus();
     } catch (error) {
       const message =
@@ -318,9 +347,29 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
     }
   }, [attachments, draftKey, locale, onClearQuotedRefs, onSend, quotedRefs, text]);
 
+  const autoResizeTextarea = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, []);
+
+  useEffect(() => {
+    autoResizeTextarea();
+  }, [text, autoResizeTextarea]);
+
   const onInputChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setText(val);
+    redoStackRef.current = [];
+
+    clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = setTimeout(() => {
+      if (val !== lastSavedRef.current) {
+        undoStackRef.current.push(lastSavedRef.current);
+        lastSavedRef.current = val;
+      }
+    }, 300);
 
     if (
       val === "/" ||
@@ -347,12 +396,40 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
         const handled = slashMenuRef.current?.handleKeyDown(e);
         if (handled) return;
       }
+
+      if (e.key === "z" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+        e.preventDefault();
+        clearTimeout(undoTimerRef.current);
+        if (text !== lastSavedRef.current) {
+          undoStackRef.current.push(lastSavedRef.current);
+        }
+        if (undoStackRef.current.length > 0) {
+          redoStackRef.current.push(text);
+          const prev = undoStackRef.current.pop()!;
+          lastSavedRef.current = prev;
+          setText(prev);
+        }
+        return;
+      }
+
+      if (e.key === "z" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+        e.preventDefault();
+        clearTimeout(undoTimerRef.current);
+        if (redoStackRef.current.length > 0) {
+          undoStackRef.current.push(text);
+          const next = redoStackRef.current.pop()!;
+          lastSavedRef.current = next;
+          setText(next);
+        }
+        return;
+      }
+
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         void submit();
       }
     },
-    [disabled, showSlash, submit]
+    [disabled, showSlash, submit, text]
   );
 
   const pickOption = useCallback(
@@ -538,7 +615,7 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
             placeholder={placeholder}
             value={text}
             disabled={disabled}
-            rows={3}
+            rows={1}
             onChange={onInputChange}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
@@ -553,6 +630,58 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
             onChange={onFileInputChange}
           />
           <div className="reply-box__toolbar">
+            {onSetAutoReply && (
+              <div className="reply-box__auto-reply-wrap" ref={autoReplyMenuRef}>
+                <button
+                  type="button"
+                  className={`reply-box__auto-reply-btn${autoReplyTemplateId ? " reply-box__auto-reply-btn--active" : ""}`}
+                  title={locale === "zh" ? "自动回复" : "Auto reply"}
+                  onClick={() => {
+                    if (autoReplyTemplateId) {
+                      onSetAutoReply(null);
+                    } else {
+                      setShowAutoReplyMenu((v) => !v);
+                    }
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 8a7 7 0 0 1 12.9-3.8" />
+                    <path d="M15 8a7 7 0 0 1-12.9 3.8" />
+                    <polyline points="14 1 14 5 10 5" />
+                    <polyline points="2 15 2 11 6 11" />
+                  </svg>
+                  {autoReplyTemplateId && (
+                    <span className="reply-box__auto-reply-badge" />
+                  )}
+                </button>
+                {showAutoReplyMenu && autoReplyTemplates.length > 0 && (
+                  <div className="reply-box__auto-reply-menu">
+                    {autoReplyTemplates.map((tpl) => (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        className="reply-box__auto-reply-option"
+                        onClick={() => {
+                          onSetAutoReply(tpl.id);
+                          setShowAutoReplyMenu(false);
+                        }}
+                      >
+                        {tpl.text}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {showAutoReplyMenu && autoReplyTemplates.length === 0 && (
+                  <div className="reply-box__auto-reply-menu">
+                    <div className="reply-box__auto-reply-empty">
+                      {locale === "zh"
+                        ? "请先在设置中添加自动回复模板"
+                        : "Add auto-reply templates in settings first"}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <button
               type="button"
               className="reply-box__file-btn"

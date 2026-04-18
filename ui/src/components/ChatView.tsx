@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { FileAttachment, HistoryEntry, ReadFileResponse, SessionInfo } from "@shared/types";
+import type { AutoReplyTemplate, FileAttachment, HistoryEntry, ReadFileResponse, SessionInfo } from "@shared/types";
 import { withAuthHeaders } from "../auth";
 import { useI18n } from "../i18n";
 import { CopyButton } from "./CopyButton";
@@ -26,6 +26,8 @@ interface ChatViewProps {
   fileDrawerOpen?: boolean;
   fileDrawerData?: ReadFileResponse | null;
   onSetFileDrawerData?: (data: ReadFileResponse | null) => void;
+  autoReplyTemplates?: AutoReplyTemplate[];
+  onSetAutoReply?: (chatSessionId: string, templateId: string | null) => void;
 }
 
 function groupInteractions(history: HistoryEntry[]) {
@@ -57,6 +59,8 @@ export function ChatView({
   fileDrawerOpen = false,
   fileDrawerData,
   onSetFileDrawerData,
+  autoReplyTemplates = [],
+  onSetAutoReply,
 }: ChatViewProps) {
   const { t, locale } = useI18n();
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -192,12 +196,11 @@ export function ChatView({
     if (!showPinPanel) return;
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (
-        pinPanelRef.current && !pinPanelRef.current.contains(target) &&
-        !(target instanceof Element && target.closest(".app__right-rail-btn--pin"))
-      ) {
-        onSetShowPinPanel?.(false);
-      }
+      if (!(target instanceof Element)) return;
+      if (pinPanelRef.current?.contains(target)) return;
+      if (target.closest(".chat-view__pin-toggle")) return;
+      if (target.closest(".app__right-rail")) return;
+      onSetShowPinPanel?.(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -355,6 +358,9 @@ export function ChatView({
                   onSendReply(session.chatSessionId, feedback, attachments)
                 }
                 connected={connected}
+                autoReplyTemplateId={session.autoReplyTemplateId}
+                autoReplyTemplates={autoReplyTemplates}
+                onSetAutoReply={onSetAutoReply ? (tid) => onSetAutoReply(session.chatSessionId, tid) : undefined}
               />
             </div>
           </div>

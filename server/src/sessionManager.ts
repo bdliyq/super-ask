@@ -822,6 +822,19 @@ export class SessionManager {
     return true;
   }
 
+  setAutoReply(chatSessionId: string, templateId: string | null): boolean {
+    const session = this.sessions.get(chatSessionId);
+    if (!session) return false;
+    session.autoReplyTemplateId = templateId || null;
+    this.wsBroadcast({
+      type: "auto_reply_update",
+      chatSessionId,
+      autoReplyTemplateId: session.autoReplyTemplateId,
+    });
+    void this.persistSession(chatSessionId);
+    return true;
+  }
+
   /**
    * 从列表中删除指定 Session（若该 Session 有 pending 请求则先取消）
    */

@@ -27,6 +27,38 @@ function setNotificationEnabled(val: boolean) {
   localStorage.setItem(NOTIFICATION_KEY, String(val));
 }
 
+export interface AutoReplyTemplate {
+  id: string;
+  text: string;
+}
+
+let _cachedTemplates: AutoReplyTemplate[] | null = null;
+
+export async function loadAutoReplyTemplates(): Promise<AutoReplyTemplate[]> {
+  try {
+    const resp = await fetch("/api/auto-reply-templates", { headers: withAuthHeaders() });
+    if (resp.ok) {
+      const data = (await resp.json()) as AutoReplyTemplate[];
+      _cachedTemplates = data;
+      return data;
+    }
+  } catch { /* 降级 */ }
+  return _cachedTemplates ?? [];
+}
+
+async function saveAutoReplyTemplates(templates: AutoReplyTemplate[]) {
+  _cachedTemplates = templates;
+  try {
+    await fetch("/api/auto-reply-templates", {
+      method: "PUT",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(templates),
+    });
+  } catch (e) {
+    console.warn("[auto-reply-templates] save failed:", e);
+  }
+}
+
 let _cachedMsgs: PredefinedMsg[] | null = null;
 
 export async function loadPredefinedMsgs(): Promise<PredefinedMsg[]> {
@@ -198,6 +230,9 @@ export function SystemSettings() {
   /** 测试通知失败时的错误文案 */
   const [notifTestError, setNotifTestError] = useState<string | null>(null);
 
+  const [autoReplyTemplates, setAutoReplyTemplates] = useState<AutoReplyTemplate[]>([]);
+  const [newTemplateDraft, setNewTemplateDraft] = useState("");
+
   const currentServerUrl = window.location.origin;
 
   const fetchServerInfo = useCallback(async () => {
@@ -214,6 +249,10 @@ export function SystemSettings() {
   useEffect(() => {
     void fetchServerInfo();
   }, [fetchServerInfo]);
+
+  useEffect(() => {
+    void loadAutoReplyTemplates().then(setAutoReplyTemplates);
+  }, []);
 
   useEffect(() => {
     void loadPredefinedMsgs().then((msgs) => {
@@ -378,6 +417,71 @@ export function SystemSettings() {
         >
           {notifTestSent ? t.notificationTestSent : t.notificationTest}
         </button>
+      </div>
+
+      <div className="system-settings__section">
+        <h2 className="system-settings__section-title">{t.autoReply}</h2>
+        <p className="system-settings__section-desc">{t.autoReplyDesc}</p>
+        {autoReplyTemplates.length === 0 ? (
+          <p className="system-settings__section-desc">
+            {locale === "zh" ? "暂无自动回复模板" : "No auto-reply templates"}
+          </p>
+        ) : (
+          <div className="system-settings__predefined-list">
+            {autoReplyTemplates.map((tpl) => (
+              <div key={tpl.id} className="system-settings__predefined-item">
+                <span className="system-settings__predefined-text">{tpl.text}</span>
+                <button
+                  type="button"
+                  className="system-settings__predefined-remove"
+                  onClick={() => {
+                    const next = autoReplyTemplates.filter((t2) => t2.id !== tpl.id);
+                    setAutoReplyTemplates(next);
+                    void saveAutoReplyTemplates(next);
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="system-settings__predefined-add">
+          <input
+            type="text"
+            className="deploy-panel__input"
+            placeholder={t.autoReplyPlaceholder}
+            value={newTemplateDraft}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setNewTemplateDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && newTemplateDraft.trim()) {
+                const next = [...autoReplyTemplates, { id: Date.now().toString(36), text: newTemplateDraft.trim() }];
+                setAutoReplyTemplates(next);
+                void saveAutoReplyTemplates(next);
+                setNewTemplateDraft("");
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="deploy-panel__btn deploy-panel__btn--deploy"
+            disabled={!newTemplateDraft.trim()}
+            onClick={() => {
+              if (!newTemplateDraft.trim()) return;
+              const next = [...autoReplyTemplates, { id: Date.now().toString(36), text: newTemplateDraft.trim() }];
+              setAutoReplyTemplates(next);
+              void saveAutoReplyTemplates(next);
+              setNewTemplateDraft("");
+            }}
+          >
+            {t.predefinedMsgAdd}
+          </button>
+        </div>
+        <p className="system-settings__section-desc" style={{ marginTop: 8, fontSize: 11 }}>
+          {locale === "zh"
+            ? "在每个会话的消息编辑框中可单独开启/关闭自动回复，并选择使用哪条模板。发送时同样会自动拼接已激活的预定义消息。"
+            : "You can enable/disable auto-reply per session in each chat's reply box and choose which template to use. Active predefined messages will be appended as usual."}
+        </p>
       </div>
 
       <div className="system-settings__section">

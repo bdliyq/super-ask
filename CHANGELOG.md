@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.1.6 (2026-04-18)
+
+### Features
+
+- **per-session auto-reply** — auto-reply is now a per-session setting instead of a global toggle. Users configure reusable reply templates in settings (stored server-side), then enable/disable auto-reply per chat session from the reply box toolbar with template selection. State syncs across devices via WebSocket.
+- **markdown floating TOC** — the document drawer renders a floating table of contents for Markdown files. The TOC stays fixed while scrolling and auto-closes when clicking outside.
+- **reply box auto-resize** — the input textarea automatically grows with content up to 10 lines, then scrolls. Manual drag-resize is removed for a cleaner experience.
+- **reply box undo / redo** — `Cmd+Z` / `Ctrl+Z` to undo, `Cmd+Shift+Z` / `Ctrl+Shift+Z` to redo, with 300 ms debounce so rapid typing merges into a single undo step.
+- **markdown default preview** — Markdown files now open in preview mode by default in the document drawer.
+
+### Fixes
+
+- **PIN panel toggle independence** — opening or closing the terminal / document drawer no longer affects the PIN messages panel state; the PIN toggle operates independently.
+- **reply box visual gap** — fixed a layout issue where the textarea and toolbar appeared as two disconnected sections with a visible gap between them.
+
 ## v1.1.5 (2026-04-17)
 
 ### Features

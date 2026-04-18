@@ -5,6 +5,36 @@ import { highlightCode, isMarkdownFile } from "../utils/shikiHighlighter";
 import { MarkdownContent } from "./MarkdownContent";
 import { useI18n } from "../i18n";
 
+interface TocItem {
+  level: number;
+  text: string;
+  slug: string;
+}
+
+function extractToc(markdown: string): TocItem[] {
+  const items: TocItem[] = [];
+  const lines = markdown.split("\n");
+  let inCodeBlock = false;
+  for (const line of lines) {
+    if (/^```/.test(line.trimStart())) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) continue;
+    const match = line.match(/^(#{1,6})\s+(.+)/);
+    if (match) {
+      const level = match[1].length;
+      const text = match[2].replace(/[*_`~\[\]]/g, "").trim();
+      const slug = text
+        .toLowerCase()
+        .replace(/[^\w\u4e00-\u9fff\s-]/g, "")
+        .replace(/\s+/g, "-");
+      items.push({ level, text, slug });
+    }
+  }
+  return items;
+}
+
 const WIDTH_KEY = "super-ask-file-drawer-width";
 const DEFAULT_WIDTH_PCT = 50;
 const MIN_WIDTH_PCT = 20;
@@ -68,8 +98,11 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showToc, setShowToc] = useState(false);
+  const [tocItems, setTocItems] = useState<TocItem[]>([]);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const tocPanelRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const editorTextareaRef = useRef<HTMLTextAreaElement>(null);
   const editorHighlightRef = useRef<HTMLDivElement>(null);
@@ -90,10 +123,32 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
   const fileName = file?.resolvedPath.split("/").pop() ?? "";
 
   useEffect(() => {
+    if (isMd && file?.content) {
+      setTocItems(extractToc(file.content));
+    } else {
+      setTocItems([]);
+      setShowToc(false);
+    }
+  }, [isMd, file?.content]);
+
+  useEffect(() => {
+    if (!showToc) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (tocPanelRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(".file-drawer__icon-btn")) return;
+      setShowToc(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showToc]);
+
+  useEffect(() => {
     if (file?.resolvedPath !== prevPathRef.current) {
       prevPathRef.current = file?.resolvedPath ?? "";
       savedContentRef.current = file?.content ?? "";
-      setViewMode("edit");
+      const nextIsMd = file ? isMarkdownFile(file.lang, file.resolvedPath) : false;
+      setViewMode(nextIsMd ? "preview" : "edit");
       setHighlightedHtml("");
       setEditHighlightHtml("");
       setEditContent(file?.content ?? "");
@@ -396,7 +451,21 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
               </button>
             </div>
           )}
-          
+          {isMd && tocItems.length > 0 && (
+            <button
+              type="button"
+              className={`file-drawer__icon-btn${showToc ? " file-drawer__icon-btn--active" : ""}`}
+              title={locale === "zh" ? "目录" : "TOC"}
+              onClick={() => setShowToc((v) => !v)}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="3" x2="13" y2="3" />
+                <line x1="3" y1="6.5" x2="10" y2="6.5" />
+                <line x1="3" y1="10" x2="11" y2="10" />
+                <line x1="3" y1="13" x2="9" y2="13" />
+              </svg>
+            </button>
+          )}
           {!file.isBinary && !file.truncated && viewMode === "edit" && (
             <>
               <button
@@ -559,6 +628,41 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
           </pre>
         )}
       </div>
+      {showToc && isMd && tocItems.length > 0 && (
+        <div className="file-drawer__toc" ref={tocPanelRef}>
+          <div className="file-drawer__toc-title">
+            {locale === "zh" ? "目录" : "TOC"}
+          </div>
+          <nav className="file-drawer__toc-nav">
+            {tocItems.map((item, i) => (
+              <a
+                key={i}
+                className="file-drawer__toc-link"
+                style={{ paddingLeft: `${(item.level - 1) * 12 + 8}px` }}
+                href={`#${item.slug}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  const container = bodyRef.current;
+                  if (!container) return;
+                  const headings = container.querySelectorAll("h1, h2, h3, h4, h5, h6");
+                  for (const el of headings) {
+                    const elText = (el.textContent || "").replace(/[^\w\u4e00-\u9fff\s-]/g, "").trim().toLowerCase().replace(/\s+/g, "-");
+                    if (elText === item.slug || el.id === item.slug) {
+                      el.scrollIntoView({ behavior: "smooth", block: "start" });
+                      return;
+                    }
+                  }
+                  if (headings[i]) {
+                    headings[i].scrollIntoView({ behavior: "smooth", block: "start" });
+                  }
+                }}
+              >
+                {item.text}
+              </a>
+            ))}
+          </nav>
+        </div>
+      )}
     </div>
   );
 }

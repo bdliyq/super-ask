@@ -172,6 +172,11 @@ export interface Translations {
 
   agentAcked: string;
 
+  // 自动回复
+  autoReply: string;
+  autoReplyDesc: string;
+  autoReplyPlaceholder: string;
+
   /** 部署请求过程中客户端展示的文案 */
   deployConnecting: string;
   deployParseFailed: string;
@@ -183,6 +188,9 @@ export interface Translations {
   deployStateDeployed: string;
   deployStateNotDeployed: string;
   workspacePathPlaceholder: string;
+
+  // 文档目录
+  tocTitle: string;
 }
 
 export const zh: Translations = {
@@ -340,6 +348,10 @@ export const zh: Translations = {
 
   agentAcked: "已送达至 Agent",
 
+  autoReply: "自动回复模板",
+  autoReplyDesc: "管理自动回复模板，可在每个会话中单独启用。",
+  autoReplyPlaceholder: "输入自动回复内容…",
+
   deployConnecting: "正在连接服务器并执行…",
   deployParseFailed: "解析响应失败",
   deployInvalidJson: "响应不是合法 JSON（HTTP {status}）",
@@ -349,6 +361,8 @@ export const zh: Translations = {
   deployStateDeployed: "已部署",
   deployStateNotDeployed: "未部署",
   workspacePathPlaceholder: "例如 /Users/you/project",
+
+  tocTitle: "目录",
 };
 
 export const en: Translations = {
@@ -506,6 +520,10 @@ export const en: Translations = {
 
   agentAcked: "Delivered to agent",
 
+  autoReply: "Auto Reply Templates",
+  autoReplyDesc: "Manage auto-reply templates, enable per session in each chat.",
+  autoReplyPlaceholder: "Enter auto-reply content…",
+
   deployConnecting: "Connecting to server…",
   deployParseFailed: "Failed to parse response",
   deployInvalidJson: "Response is not valid JSON (HTTP {status})",
@@ -515,6 +533,8 @@ export const en: Translations = {
   deployStateDeployed: "Deployed",
   deployStateNotDeployed: "Not deployed",
   workspacePathPlaceholder: "e.g. /Users/you/project",
+
+  tocTitle: "TOC",
 };
 
 export const translations: Record<Locale, Translations> = { zh, en };

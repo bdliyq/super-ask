@@ -4,11 +4,11 @@ import { TerminalDrawer } from "./components/TerminalDrawer";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SessionTabs } from "./components/SessionTabs";
 import { StatusBar } from "./components/StatusBar";
-import type { FileAttachment, ReadFileResponse, WsServerMessage } from "@shared/types";
+import type { AutoReplyTemplate, FileAttachment, ReadFileResponse, WsServerMessage } from "@shared/types";
 import { useSessions } from "./hooks/useSessions";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useI18n } from "./i18n";
-import { getActivePredefinedSuffix, isNotificationEnabled } from "./components/SystemSettings";
+import { getActivePredefinedSuffix, isNotificationEnabled, loadAutoReplyTemplates } from "./components/SystemSettings";
 import { withAuthHeaders } from "./auth";
 
 const THEME_STORAGE_KEY = "super-ask-theme";
@@ -65,6 +65,7 @@ export default function App() {
   });
 
   const [showPinPanel, setShowPinPanel] = useState(false);
+  const [autoReplyTemplates, setAutoReplyTemplates] = useState<AutoReplyTemplate[]>([]);
   const [sessionFileMap, setSessionFileMap] = useState<Record<string, ReadFileResponse>>({});
   const [sessionFileOpen, setSessionFileOpen] = useState<Record<string, boolean>>(() => {
     try {
@@ -98,6 +99,22 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, view);
   }, [view]);
+
+  useEffect(() => {
+    void loadAutoReplyTemplates().then(setAutoReplyTemplates);
+  }, []);
+
+  const handleSetAutoReply = useCallback(async (chatSessionId: string, templateId: string | null) => {
+    try {
+      await fetch("/api/auto-reply", {
+        method: "POST",
+        headers: withAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ chatSessionId, templateId }),
+      });
+    } catch (e) {
+      console.warn("[auto-reply] set failed:", e);
+    }
+  }, []);
 
   const togglePanel = useCallback(() => {
     setPanelVisible((v) => !v);
@@ -282,6 +299,21 @@ export default function App() {
               syncQueueState();
             });
         }, 100);
+      } else {
+        const session = sessionsRef.current.get(msg.chatSessionId);
+        if (session?.autoReplyTemplateId) {
+          const tid = session.autoReplyTemplateId;
+          setTimeout(() => {
+            void (async () => {
+              const templates = await loadAutoReplyTemplates();
+              const tpl = templates.find((t) => t.id === tid);
+              const rawText = tpl?.text?.trim() || "继续";
+              const suffix = await getActivePredefinedSuffix();
+              const fullText = rawText + suffix;
+              void sendReplyRef.current(msg.chatSessionId, fullText, undefined, rawText);
+            })();
+          }, 300);
+        }
       }
     }
   }, [handleServerMessage, syncQueueState]);
@@ -430,6 +462,8 @@ export default function App() {
             fileDrawerOpen={fileDrawerOpen}
             fileDrawerData={fileDrawerData}
             onSetFileDrawerData={handleSetFileDrawerData}
+            autoReplyTemplates={autoReplyTemplates}
+            onSetAutoReply={handleSetAutoReply}
           />
         )}
       </main>
