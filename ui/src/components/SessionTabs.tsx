@@ -450,6 +450,13 @@ export function SessionTabs({
                       )}
                       <SourceBadge source={s.source} />
                       <span className="session-tabs__item-title">{s.title || t.unnamed}</span>
+                      {(s.tags ?? []).length > 0 && (
+                        <span className="session-tabs__tags">
+                          {s.tags!.map((tag) => (
+                            <span key={tag} className="session-tabs__tag">{tag}</span>
+                          ))}
+                        </span>
+                      )}
                       <RequestStatusBadge status={s.requestStatus} />
                       {s.hasPending ? (
                         <span className="session-tabs__dot" title={t.pendingReply} aria-hidden />

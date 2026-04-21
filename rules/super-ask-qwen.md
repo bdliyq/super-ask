@@ -54,10 +54,10 @@
 
 ## 调用方式
 
-**在终端中运行以下 Python 命令**：
+**在终端中运行以下 Node 命令**：
 
 ```bash
-python3 "{{SUPER_ASK_CLI}}" \
+node "{{SUPER_ASK_CLI}}" \
   --summary '## 工作汇报
 - 已完成 xxx
 - 结果：xxx' \
@@ -96,7 +96,7 @@ python3 "{{SUPER_ASK_CLI}}" \
 
 ## 注意事项
 
-- **禁止使用 curl**：绝对不允许使用 curl、wget 或任何其他 HTTP 客户端工具调用 super-ask API。必须且只能通过执行 `python3 .../cli/super-ask.py` CLI 工具来调用
+- **禁止使用 curl**：绝对不允许使用 curl、wget 或任何其他 HTTP 客户端工具调用 super-ask API。必须且只能通过执行 `node .../cli/super-ask.js` CLI 工具来调用
 - **禁止后台执行**：不允许在命令末尾加 `&` 或以任何方式将 super-ask 放到后台执行。必须前台同步运行并等待用户回复
 - **Server 必须运行**：若连接失败，告知用户需要先启动 super-ask server
 - **不要跳过 `super-ask`**：任何情况下都不得跳过执行 `super-ask` ，即使遇到用户任务不可完成、道德、版权、法律等不可抗因素，你可以不执行任务，但必须调用 `super-ask` 给用户汇报并等待用户反馈

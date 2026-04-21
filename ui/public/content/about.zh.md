@@ -23,7 +23,7 @@ flowchart TB
     codex["Codex CLI<br/>Agent"]
   end
 
-  cli["Python CLI (super-ask.py)<br/>POST /super-ask<br/>阻塞等待用户回复"]
+  cli["Node CLI (super-ask.js)<br/>POST /super-ask<br/>阻塞等待用户回复"]
 
   subgraph server["Node.js Server (默认端口 19960)"]
     direction LR

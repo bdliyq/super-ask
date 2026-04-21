@@ -105,18 +105,6 @@ async function renderFileDrawer(file: ReadFileResponse) {
   };
 }
 
-async function waitFor(condition: () => boolean, timeoutMs = 5000) {
-  const startedAt = Date.now();
-  while (!condition()) {
-    if (Date.now() - startedAt > timeoutMs) {
-      throw new Error("Timed out waiting for condition");
-    }
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-  }
-}
-
 function setHorizontalMetrics(el: HTMLElement, clientWidth: number, scrollWidth: number) {
   let scrollLeft = 0;
   Object.defineProperty(el, "clientWidth", {
@@ -136,83 +124,6 @@ function setHorizontalMetrics(el: HTMLElement, clientWidth: number, scrollWidth:
     },
   });
 }
-
-function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
-  const reactPropsKey = Object.keys(textarea).find((key) => key.startsWith("__reactProps"));
-  assert.ok(reactPropsKey);
-  const reactProps = (textarea as unknown as Record<string, { onChange?: (event: React.ChangeEvent<HTMLTextAreaElement>) => void }>)[reactPropsKey];
-  assert.equal(typeof reactProps?.onChange, "function");
-  reactProps.onChange?.({
-    target: { value },
-  } as React.ChangeEvent<HTMLTextAreaElement>);
-}
-
-test("FileDrawer forwards horizontal wheel on the edit surface to the textarea", async () => {
-  const rendered = await renderFileDrawer(
-    makeFile({
-      lang: "plaintext",
-      resolvedPath: "/Users/leoli/workspace/super-ask/docs/example.txt",
-    }),
-  );
-
-  try {
-    const body = rendered.container.querySelector(".file-drawer__body");
-    const wrapper = rendered.container.querySelector(".file-drawer__editor-wrapper");
-    const textarea = rendered.container.querySelector(".file-drawer__editor");
-
-    assert.ok(body instanceof HTMLElement);
-    assert.ok(wrapper instanceof HTMLElement);
-    assert.ok(textarea instanceof HTMLTextAreaElement);
-
-    setHorizontalMetrics(body, 320, 320);
-    setHorizontalMetrics(textarea, 320, 1200);
-
-    await act(async () => {
-      wrapper.dispatchEvent(new window.WheelEvent("wheel", {
-        bubbles: true,
-        cancelable: true,
-        deltaX: 120,
-      }));
-    });
-
-    assert.equal(body.scrollLeft, 0);
-    assert.equal(textarea.scrollLeft, 120);
-  } finally {
-    await rendered.cleanup();
-  }
-});
-
-test("FileDrawer ignores diagonal wheel gestures on the edit surface when vertical movement is also present", async () => {
-  const rendered = await renderFileDrawer(
-    makeFile({
-      lang: "plaintext",
-      resolvedPath: "/Users/leoli/workspace/super-ask/docs/example.txt",
-    }),
-  );
-
-  try {
-    const wrapper = rendered.container.querySelector(".file-drawer__editor-wrapper");
-    const textarea = rendered.container.querySelector(".file-drawer__editor");
-
-    assert.ok(wrapper instanceof HTMLElement);
-    assert.ok(textarea instanceof HTMLTextAreaElement);
-
-    setHorizontalMetrics(textarea, 320, 1200);
-
-    await act(async () => {
-      wrapper.dispatchEvent(new window.WheelEvent("wheel", {
-        bubbles: true,
-        cancelable: true,
-        deltaX: 120,
-        deltaY: 60,
-      }));
-    });
-
-    assert.equal(textarea.scrollLeft, 0);
-  } finally {
-    await rendered.cleanup();
-  }
-});
 
 test("FileDrawer forwards horizontal wheel on markdown preview body to a single code block", async () => {
   const rendered = await renderFileDrawer(
@@ -262,7 +173,7 @@ test("FileDrawer forwards horizontal wheel on markdown preview body to a single 
   }
 });
 
-test("FileDrawer renders the edit highlight layer as a div so Shiki pre is not nested inside another pre", async () => {
+test("FileDrawer mounts CodeMirror container in edit mode", async () => {
   const rendered = await renderFileDrawer(
     makeFile({
       lang: "typescript",
@@ -271,68 +182,34 @@ test("FileDrawer renders the edit highlight layer as a div so Shiki pre is not n
   );
 
   try {
-    await waitFor(() => rendered.container.querySelector(".file-drawer__editor-highlight .shiki") !== null);
-
-    const highlightLayer = rendered.container.querySelector(".file-drawer__editor-highlight");
-    const shikiPre = rendered.container.querySelector(".file-drawer__editor-highlight .shiki");
-
-    assert.ok(highlightLayer instanceof HTMLElement);
-    assert.ok(shikiPre instanceof HTMLElement);
-    assert.equal(highlightLayer.tagName, "DIV");
-    assert.equal(shikiPre.tagName, "PRE");
+    // 编辑模式下挂载 CodeMirror 容器；具体的 CM 内部行为由 CM 自带测试覆盖，
+    // 这里只验证容器存在 + 不再渲染老的双层 textarea/highlight 结构。
+    const cm = rendered.container.querySelector(".file-drawer__cm");
+    assert.ok(cm instanceof HTMLElement, "should mount CodeMirror container");
+    assert.equal(rendered.container.querySelector(".file-drawer__editor"), null, "old textarea must be removed");
+    assert.equal(rendered.container.querySelector(".file-drawer__editor-highlight"), null, "old highlight layer must be removed");
+    assert.equal(rendered.container.querySelector(".file-drawer__editor-wrapper"), null, "old wrapper must be removed");
   } finally {
     await rendered.cleanup();
   }
 });
 
-test("FileDrawer clears the dirty indicator and disables save after undo returns to the original content", async () => {
+test("FileDrawer shows line numbers by default in edit mode", async () => {
   const rendered = await renderFileDrawer(
     makeFile({
-      lang: "plaintext",
-      resolvedPath: "/Users/leoli/workspace/super-ask/docs/example.txt",
-      content: "hello",
-      size: 5,
+      lang: "typescript",
+      resolvedPath: "/Users/leoli/workspace/super-ask/ui/src/example.ts",
+      content: "first line\nsecond line\n",
+      size: "first line\nsecond line\n".length,
     }),
   );
 
   try {
-    const textarea = rendered.container.querySelector(".file-drawer__editor");
-    const saveButton = Array.from(rendered.container.querySelectorAll("button")).find(
-      (button) => button.getAttribute("title") === "Save (⌘S)",
-    );
-    const undoButton = Array.from(rendered.container.querySelectorAll("button")).find(
-      (button) => button.getAttribute("title") === "Undo (⌘Z)",
-    );
+    const gutters = rendered.container.querySelector(".cm-gutters");
+    const lineNumbers = rendered.container.querySelector(".cm-lineNumbers");
 
-    assert.ok(textarea instanceof HTMLTextAreaElement);
-    assert.ok(saveButton instanceof HTMLElement);
-    assert.ok(undoButton instanceof HTMLElement);
-    assert.equal(rendered.container.querySelector(".file-drawer__dirty-dot"), null);
-    assert.equal((saveButton as HTMLButtonElement).disabled, true);
-
-    await act(async () => {
-      setTextareaValue(textarea, "hello!");
-    });
-
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 450));
-    });
-
-    assert.ok(rendered.container.querySelector(".file-drawer__dirty-dot"));
-    assert.equal((saveButton as HTMLButtonElement).disabled, false);
-    assert.equal((undoButton as HTMLButtonElement).disabled, false);
-
-    await act(async () => {
-      undoButton.dispatchEvent(new window.MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-      }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-
-    assert.equal(textarea.value, "hello");
-    assert.equal(rendered.container.querySelector(".file-drawer__dirty-dot"), null);
-    assert.equal((saveButton as HTMLButtonElement).disabled, true);
+    assert.ok(gutters instanceof HTMLElement, "should render CodeMirror gutters in edit mode");
+    assert.ok(lineNumbers instanceof HTMLElement, "should render line numbers in edit mode");
   } finally {
     await rendered.cleanup();
   }

@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 import type { ReadFileResponse } from "@shared/types";
 import { withAuthHeaders } from "../auth";
 import { highlightCode, isMarkdownFile } from "../utils/shikiHighlighter";
+import { startBodyResizeSession } from "../utils/bodyResizeSession";
+import { getCodeEditorLanguage } from "../utils/codeEditorLanguages";
+import { CodeEditor, type CodeEditorRef } from "./CodeEditor";
 import { MarkdownContent } from "./MarkdownContent";
 import { useI18n } from "../i18n";
 
@@ -94,33 +97,59 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
   const [widthPct, setWidthPct] = useState(loadWidth);
   const [maximized, setMaximized] = useState(false);
   const [editContent, setEditContent] = useState("");
-  const [editHighlightHtml, setEditHighlightHtml] = useState("");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [tocItems, setTocItems] = useState<TocItem[]>([]);
+  const [editorTheme, setEditorTheme] = useState<"light" | "dark">(() =>
+    typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light",
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   const tocPanelRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const editorTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const editorHighlightRef = useRef<HTMLDivElement>(null);
+  const codeEditorRef = useRef<CodeEditorRef>(null);
   const dragging = useRef(false);
   const startX = useRef(0);
   const startPct = useRef(0);
+  const widthPctRef = useRef(widthPct);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
   const prevPathRef = useRef("");
   const savedContentRef = useRef("");
 
-  const undoStack = useRef<string[]>([]);
-  const redoStack = useRef<string[]>([]);
-  const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const isUndoRedo = useRef(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
+  useEffect(() => {
+    widthPctRef.current = widthPct;
+  }, [widthPct]);
+
+  useEffect(() => () => {
+    resizeCleanupRef.current?.();
+    resizeCleanupRef.current = null;
+  }, []);
+
+  // 跟随 data-theme 变化（深浅色切换）。CodeEditor 通过 props.theme reconfigure 自身主题。
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const el = document.documentElement;
+    const apply = () => {
+      setEditorTheme(el.getAttribute("data-theme") === "dark" ? "dark" : "light");
+    };
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(el, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+
   const isMd = file ? isMarkdownFile(file.lang, file.resolvedPath) : false;
   const fileName = file?.resolvedPath.split("/").pop() ?? "";
+
+  const editorLanguage = useMemo(
+    () => getCodeEditorLanguage(file?.lang ?? null),
+    [file?.lang],
+  );
 
   useEffect(() => {
     if (isMd && file?.content) {
@@ -139,8 +168,8 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
       if (target instanceof Element && target.closest(".file-drawer__icon-btn")) return;
       setShowToc(false);
     };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
   }, [showToc]);
 
   useEffect(() => {
@@ -150,11 +179,8 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
       const nextIsMd = file ? isMarkdownFile(file.lang, file.resolvedPath) : false;
       setViewMode(nextIsMd ? "preview" : "edit");
       setHighlightedHtml("");
-      setEditHighlightHtml("");
       setEditContent(file?.content ?? "");
       setDirty(false);
-      undoStack.current = [];
-      redoStack.current = [];
       setCanUndo(false);
       setCanRedo(false);
     }
@@ -180,90 +206,26 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
     return () => { cancelled = true; };
   }, [file, isMd, viewMode]);
 
-  useEffect(() => {
-    if (!file || file.isBinary || viewMode !== "edit") {
-      setEditHighlightHtml("");
-      return;
-    }
-    const lang = file.lang ?? "plaintext";
-    if (!lang || lang === "plaintext") return;
-
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      const theme = document.documentElement.getAttribute("data-theme") === "dark"
-        ? "one-dark-pro" as const
-        : "github-light" as const;
-      highlightCode(editContent, lang, theme).then((html) => {
-        if (!cancelled) setEditHighlightHtml(html);
-      });
-    }, 200);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [editContent, file, viewMode]);
-
-  const pushUndoSnapshot = useCallback((prev: string) => {
-    undoStack.current.push(prev);
-    if (undoStack.current.length > 200) undoStack.current.splice(0, undoStack.current.length - 200);
-    redoStack.current = [];
-    setCanUndo(true);
-    setCanRedo(false);
-  }, []);
-
-  const updateDirtyState = useCallback((nextContent: string) => {
-    setDirty(nextContent !== savedContentRef.current);
-  }, []);
-
   const handleContentChange = useCallback((next: string) => {
-    if (isUndoRedo.current) return;
-    const prev = editContent;
     setEditContent(next);
-    updateDirtyState(next);
-    clearTimeout(undoTimer.current);
-    undoTimer.current = setTimeout(() => pushUndoSnapshot(prev), 400);
-  }, [editContent, pushUndoSnapshot, updateDirtyState]);
+    setDirty(next !== savedContentRef.current);
+  }, []);
 
   const handleUndo = useCallback(() => {
-    if (undoStack.current.length === 0) return;
-    const prev = undoStack.current.pop()!;
-    redoStack.current.push(editContent);
-    isUndoRedo.current = true;
-    setEditContent(prev);
-    updateDirtyState(prev);
-    setCanUndo(undoStack.current.length > 0);
-    setCanRedo(true);
-    requestAnimationFrame(() => { isUndoRedo.current = false; });
-  }, [editContent, updateDirtyState]);
-
-  const handleRedo = useCallback(() => {
-    if (redoStack.current.length === 0) return;
-    const next = redoStack.current.pop()!;
-    undoStack.current.push(editContent);
-    isUndoRedo.current = true;
-    setEditContent(next);
-    updateDirtyState(next);
-    setCanUndo(true);
-    setCanRedo(redoStack.current.length > 0);
-    requestAnimationFrame(() => { isUndoRedo.current = false; });
-  }, [editContent, updateDirtyState]);
-
-  const syncEditorScroll = useCallback(() => {
-    const ta = editorTextareaRef.current;
-    const pre = editorHighlightRef.current;
-    if (ta && pre) {
-      pre.scrollTop = ta.scrollTop;
-      pre.scrollLeft = ta.scrollLeft;
-    }
+    codeEditorRef.current?.undo();
   }, []);
 
-  const handleEditorScroll = useCallback(() => {
-    syncEditorScroll();
-  }, [syncEditorScroll]);
+  const handleRedo = useCallback(() => {
+    codeEditorRef.current?.redo();
+  }, []);
 
   const resolveHorizontalScrollOwner = useCallback((target: EventTarget | null): HTMLElement | null => {
     const body = bodyRef.current;
     if (!body) return null;
 
+    // edit 模式下 CodeMirror 自管横向滚动 + wheel；这里返回 null 让事件由 CM 处理。
     if (viewMode === "edit") {
-      return editorTextareaRef.current;
+      return null;
     }
 
     let node: HTMLElement | null = isHTMLElement(target) ? target : null;
@@ -299,59 +261,60 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
 
     const prevLeft = owner.scrollLeft;
     owner.scrollLeft = prevLeft + delta;
-    if (owner === editorTextareaRef.current) {
-      syncEditorScroll();
-    }
 
     if (owner.scrollLeft !== prevLeft) {
       event.preventDefault();
     }
-  }, [resolveHorizontalScrollOwner, syncEditorScroll]);
+  }, [resolveHorizontalScrollOwner]);
+
+  const handleHistoryChange = useCallback((state: { canUndo: boolean; canRedo: boolean }) => {
+    setCanUndo(state.canUndo);
+    setCanRedo(state.canRedo);
+  }, []);
 
   useEffect(() => {
     if (!file) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
+      // CodeMirror 内置了 Mod-s（已绑到 onSave）以及 Mod-z / Mod-Shift-z。
+      // 这里只兜底当焦点不在 CM（如点了路径或工具栏）时仍能保存。
       if ((e.metaKey || e.ctrlKey) && e.key === "s" && viewMode === "edit") {
-        e.preventDefault();
-        handleSave();
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "z" && viewMode === "edit") {
-        e.preventDefault();
-        if (e.shiftKey) handleRedo();
-        else handleUndo();
+        const target = e.target as HTMLElement | null;
+        if (!target || !target.closest(".file-drawer__cm")) {
+          e.preventDefault();
+          handleSave();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [file, onClose, viewMode, handleUndo, handleRedo]);
+  }, [file, onClose, viewMode]);
 
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     if (maximized) return;
     e.preventDefault();
+    resizeCleanupRef.current?.();
     dragging.current = true;
     startX.current = e.clientX;
     startPct.current = widthPct;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+    widthPctRef.current = widthPct;
     const parentWidth = containerRef.current?.parentElement?.clientWidth ?? window.innerWidth;
     const onMove = (ev: globalThis.MouseEvent) => {
       if (!dragging.current) return;
       const deltaPx = startX.current - ev.clientX;
       const deltaPct = (deltaPx / parentWidth) * 100;
       const next = Math.max(MIN_WIDTH_PCT, Math.min(MAX_WIDTH_PCT, startPct.current + deltaPct));
+      widthPctRef.current = next;
       setWidthPct(next);
     };
-    const onUp = () => {
-      dragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      setWidthPct((v) => { persistWidth(v); return v; });
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    resizeCleanupRef.current = startBodyResizeSession({
+      onMove,
+      onEnd: () => {
+        dragging.current = false;
+        persistWidth(widthPctRef.current);
+        resizeCleanupRef.current = null;
+      },
+    });
   }, [widthPct, maximized]);
 
   const toggleMaximize = useCallback(() => setMaximized((v) => !v), []);
@@ -576,7 +539,11 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
             : `File too large (${(file.size / (1024 * 1024)).toFixed(1)} MB), showing first 2 MB`}
         </div>
       )}
-      <div ref={bodyRef} className="file-drawer__body" onWheelCapture={handleBodyWheel}>
+      <div
+        ref={bodyRef}
+        className={`file-drawer__body${showToc && isMd && tocItems.length > 0 ? " file-drawer__body--with-toc" : ""}`}
+        onWheelCapture={handleBodyWheel}
+      >
         {file.isBinary ? (
           <div className="file-drawer__binary-notice">
             {locale === "zh" ? "二进制文件，无法预览" : "Binary file, cannot preview"}
@@ -591,24 +558,18 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
             )}
           </div>
         ) : viewMode === "edit" ? (
-          <div className="file-drawer__editor-wrapper">
-            {editHighlightHtml && (
-              <div
-                ref={editorHighlightRef}
-                className="file-drawer__editor-highlight shiki-container"
-                aria-hidden="true"
-                dangerouslySetInnerHTML={{ __html: editHighlightHtml }}
-              />
-            )}
-            <textarea
-              ref={editorTextareaRef}
-              className={`file-drawer__editor${editHighlightHtml ? " file-drawer__editor--transparent" : ""}`}
-              value={editContent}
-              onChange={(e) => handleContentChange(e.target.value)}
-              onScroll={handleEditorScroll}
-              spellCheck={false}
-            />
-          </div>
+          <CodeEditor
+            // 切换到不同文件时强制 remount，重置 CodeMirror 内部 history。
+            key={file.resolvedPath}
+            ref={codeEditorRef}
+            className="file-drawer__cm"
+            value={editContent}
+            onChange={handleContentChange}
+            onSave={handleSave}
+            onHistoryChange={handleHistoryChange}
+            language={editorLanguage}
+            theme={editorTheme}
+          />
         ) : isMd && viewMode === "preview" ? (
           <div className="file-drawer__markdown markdown-body">
             <MarkdownContent source={file.content ?? ""} />
@@ -627,42 +588,42 @@ export function FileDrawer({ file, onClose, onOpenInFinder }: FileDrawerProps) {
             <code>{file.content}</code>
           </pre>
         )}
-      </div>
-      {showToc && isMd && tocItems.length > 0 && (
-        <div className="file-drawer__toc" ref={tocPanelRef}>
-          <div className="file-drawer__toc-title">
-            {locale === "zh" ? "目录" : "TOC"}
-          </div>
-          <nav className="file-drawer__toc-nav">
-            {tocItems.map((item, i) => (
-              <a
-                key={i}
-                className="file-drawer__toc-link"
-                style={{ paddingLeft: `${(item.level - 1) * 12 + 8}px` }}
-                href={`#${item.slug}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  const container = bodyRef.current;
-                  if (!container) return;
-                  const headings = container.querySelectorAll("h1, h2, h3, h4, h5, h6");
-                  for (const el of headings) {
-                    const elText = (el.textContent || "").replace(/[^\w\u4e00-\u9fff\s-]/g, "").trim().toLowerCase().replace(/\s+/g, "-");
-                    if (elText === item.slug || el.id === item.slug) {
-                      el.scrollIntoView({ behavior: "smooth", block: "start" });
-                      return;
+        {showToc && isMd && tocItems.length > 0 && (
+          <aside className="file-drawer__toc" ref={tocPanelRef}>
+            <div className="file-drawer__toc-title">
+              {locale === "zh" ? "目录" : "TOC"}
+            </div>
+            <nav className="file-drawer__toc-nav">
+              {tocItems.map((item, i) => (
+                <a
+                  key={i}
+                  className="file-drawer__toc-link"
+                  style={{ paddingLeft: `${(item.level - 1) * 12 + 8}px` }}
+                  href={`#${item.slug}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const container = bodyRef.current;
+                    if (!container) return;
+                    const headings = container.querySelectorAll("h1, h2, h3, h4, h5, h6");
+                    for (const el of headings) {
+                      const elText = (el.textContent || "").replace(/[^\w\u4e00-\u9fff\s-]/g, "").trim().toLowerCase().replace(/\s+/g, "-");
+                      if (elText === item.slug || el.id === item.slug) {
+                        el.scrollIntoView({ behavior: "smooth", block: "start" });
+                        return;
+                      }
                     }
-                  }
-                  if (headings[i]) {
-                    headings[i].scrollIntoView({ behavior: "smooth", block: "start" });
-                  }
-                }}
-              >
-                {item.text}
-              </a>
-            ))}
-          </nav>
-        </div>
-      )}
+                    if (headings[i]) {
+                      headings[i].scrollIntoView({ behavior: "smooth", block: "start" });
+                    }
+                  }}
+                >
+                  {item.text}
+                </a>
+              ))}
+            </nav>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

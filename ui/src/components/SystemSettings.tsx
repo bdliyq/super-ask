@@ -1,13 +1,33 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
+import type { PredefinedMessage } from "@shared/types";
 import { withAuthHeaders } from "../auth";
 import { useI18n } from "../i18n";
 import type { Locale } from "../i18n";
 import { CopyButton } from "./CopyButton";
 
-export interface PredefinedMsg {
-  id: string;
-  text: string;
-  active: boolean;
+export type PredefinedMsg = PredefinedMessage;
+
+const predefinedMsgsSyncListeners = new Set<(msgs: PredefinedMessage[]) => void>();
+
+/** 将服务端权威列表同步到内存与已订阅的设置页（WebSocket / 全量 sync 后调用） */
+export function emitPredefinedMsgsSync(msgs: PredefinedMessage[]): void {
+  _cachedMsgs = msgs;
+  for (const cb of predefinedMsgsSyncListeners) {
+    try {
+      cb(msgs);
+    } catch {
+      /* 单个监听异常不影响其它端 */
+    }
+  }
+}
+
+export function subscribePredefinedMsgsSync(
+  listener: (msgs: PredefinedMessage[]) => void,
+): () => void {
+  predefinedMsgsSyncListeners.add(listener);
+  return () => {
+    predefinedMsgsSyncListeners.delete(listener);
+  };
 }
 
 interface PredefinedMessagesListProps {
@@ -59,13 +79,13 @@ async function saveAutoReplyTemplates(templates: AutoReplyTemplate[]) {
   }
 }
 
-let _cachedMsgs: PredefinedMsg[] | null = null;
+let _cachedMsgs: PredefinedMessage[] | null = null;
 
-export async function loadPredefinedMsgs(): Promise<PredefinedMsg[]> {
+export async function loadPredefinedMsgs(): Promise<PredefinedMessage[]> {
   try {
     const resp = await fetch("/api/predefined-msgs", { headers: withAuthHeaders() });
     if (resp.ok) {
-      const data = (await resp.json()) as PredefinedMsg[];
+      const data = (await resp.json()) as PredefinedMessage[];
       _cachedMsgs = data;
       return data;
     }
@@ -73,7 +93,7 @@ export async function loadPredefinedMsgs(): Promise<PredefinedMsg[]> {
   return _cachedMsgs ?? [];
 }
 
-async function savePredefinedMsgs(msgs: PredefinedMsg[]) {
+async function savePredefinedMsgs(msgs: PredefinedMessage[]) {
   _cachedMsgs = msgs;
   try {
     await fetch("/api/predefined-msgs", {
@@ -255,10 +275,14 @@ export function SystemSettings() {
   }, []);
 
   useEffect(() => {
+    const unsub = subscribePredefinedMsgsSync((msgs) => {
+      setPredefinedMsgs(msgs);
+    });
     void loadPredefinedMsgs().then((msgs) => {
       setPredefinedMsgs(msgs);
       setPredefinedLoaded(true);
     });
+    return unsub;
   }, []);
 
   const onLocaleChange = (next: Locale) => {

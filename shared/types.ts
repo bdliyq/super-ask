@@ -37,6 +37,13 @@ export interface HealthResponse {
   pendingRequests: number;
 }
 
+/** 设置中的预定义消息项（持久化于 predefined-msgs.json，含勾选状态 active） */
+export interface PredefinedMessage {
+  id: string;
+  text: string;
+  active: boolean;
+}
+
 export interface ErrorResponse {
   error: string;
   code:
@@ -51,13 +58,15 @@ export interface ErrorResponse {
 export type WsServerMessage =
   | WsNewRequest
   | WsSessionUpdate
+  | WsSessionTitleUpdate
   | WsSync
   | WsSessionDeleted
   | WsPinUpdate
   | WsPinnedSessionOrderUpdate
   | WsTagUpdate
   | WsReplyResult
-  | WsAutoReplyUpdate;
+  | WsAutoReplyUpdate
+  | WsPredefinedMsgsSync;
 
 export type WsClientMessage = WsReply | WsDeleteSession;
 
@@ -73,6 +82,11 @@ export interface WsNewRequest {
   source?: string;
   /** Agent 所在工作区根路径 */
   workspaceRoot?: string;
+  /** 幂等键：CLI 重试 / 服务端重启后补发时 UI 据此去重 */
+  requestId?: string;
+  /** 该 new_request 是否由已有 agent 请求（同 requestId）重新挂上长连接产生，
+   *  UI 用来区分"全新请求"与"恢复中的请求"，避免重复追加历史项 */
+  resumed?: boolean;
 }
 
 export interface WsSessionUpdate {
@@ -81,6 +95,12 @@ export interface WsSessionUpdate {
   status: "pending" | "cancelled" | "replied" | "acked";
   /** 回复时附带用户的历史记录，供其他浏览器实时同步 */
   historyEntry?: HistoryEntry;
+}
+
+export interface WsSessionTitleUpdate {
+  type: "session_title_update";
+  chatSessionId: string;
+  title: string;
 }
 
 export interface WsSync {
@@ -142,11 +162,19 @@ export interface WsAutoReplyUpdate {
   autoReplyTemplateId: string | null;
 }
 
+/** 预定义消息列表更新（PUT 保存后广播，供多标签/多浏览器与磁盘状态一致） */
+export interface WsPredefinedMsgsSync {
+  type: "predefined_msgs_sync";
+  messages: PredefinedMessage[];
+}
+
 // === Session / History ===
 
 export interface SessionInfo {
   chatSessionId: string;
   title: string;
+  /** 用户手动改名后，后续 Agent ask 不应再覆盖会话标题 */
+  titleManuallySet?: boolean;
   history: HistoryEntry[];
   hasPending: boolean;
   createdAt: number;

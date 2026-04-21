@@ -1,6 +1,6 @@
 {
   "name": "super-ask",
-  "version": "0.1.0",
+  "version": "1.1.7",
   "type": "module",
   "bin": {
     "super-ask": "dist/index.js"

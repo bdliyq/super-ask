@@ -23,7 +23,7 @@ flowchart TB
     codex["Codex CLI<br/>Agent"]
   end
 
-  cli["Python CLI (super-ask.py)<br/>POST /super-ask<br/>Blocks until user replies"]
+  cli["Node CLI (super-ask.js)<br/>POST /super-ask<br/>Blocks until user replies"]
 
   subgraph server["Node.js Server (default port 19960)"]
     direction LR

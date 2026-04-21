@@ -201,13 +201,33 @@ export function useSessions() {
           question: msg.question,
           options: msg.options,
           timestamp: now,
+          ...(typeof msg.requestId === "string" && msg.requestId
+            ? { requestId: msg.requestId }
+            : {}),
         };
+
+        // 基于 requestId 去重：若同 requestId 的 agent 历史项已存在且其后无用户回复，
+        // 视为"同一请求重新挂上长连接"（CLI 重试或服务端重启后恢复），
+        // 只刷新会话状态，不追加历史项，避免出现重复的 agent 消息。
+        let shouldAppendAgentEntry = true;
+        if (existing && msg.requestId) {
+          for (let i = existing.history.length - 1; i >= 0; i -= 1) {
+            const entry = existing.history[i];
+            if (entry.role === "agent" && entry.requestId === msg.requestId) {
+              shouldAppendAgentEntry = false;
+              break;
+            }
+            if (entry.role === "user") break;
+          }
+        }
 
         if (existing) {
           next.set(msg.chatSessionId, {
             ...existing,
             title: msg.title || existing.title,
-            history: [...existing.history, agentEntry],
+            history: shouldAppendAgentEntry
+              ? [...existing.history, agentEntry]
+              : existing.history,
             hasPending: true,
             requestStatus: "pending",
             ...(typeof msg.source === "string"
@@ -298,6 +318,20 @@ export function useSessions() {
         next.set(msg.chatSessionId, {
           ...existing,
           tags: msg.tags,
+        });
+        return next;
+      });
+      return;
+    }
+
+    if (msg.type === "session_title_update") {
+      setSessions((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(msg.chatSessionId);
+        if (!existing) return prev;
+        next.set(msg.chatSessionId, {
+          ...existing,
+          title: msg.title,
         });
         return next;
       });

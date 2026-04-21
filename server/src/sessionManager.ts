@@ -15,6 +15,7 @@ import type {
   WsSessionDeleted,
   WsPinUpdate,
   WsPinnedSessionOrderUpdate,
+  WsSessionTitleUpdate,
   WsTagUpdate,
   WsServerMessage,
   SuperAskConfig,
@@ -208,9 +209,23 @@ export class SessionManager {
     httpRes: ServerResponse,
     reject: (error: Error) => void
   ): boolean {
-    if (this.sessions.size < this.config.maxSessions) {
-      return true;
+    if (this.config.maxSessions <= 0) {
+      return this.rejectMaxSessions(httpRes, reject);
     }
+
+    while (this.sessions.size >= this.config.maxSessions) {
+      if (!this.evictOldestInactiveSession()) {
+        return this.rejectMaxSessions(httpRes, reject);
+      }
+    }
+
+    return true;
+  }
+
+  private rejectMaxSessions(
+    httpRes: ServerResponse,
+    reject: (error: Error) => void
+  ): false {
     this.sendJsonError(
       httpRes,
       503,
@@ -219,6 +234,18 @@ export class SessionManager {
     );
     reject(new Error("MAX_SESSIONS"));
     return false;
+  }
+
+  // Keep accepting new blocking asks by recycling the stalest inactive session first.
+  private evictOldestInactiveSession(): boolean {
+    let candidate: SessionInfo | null = null;
+    for (const session of this.sessions.values()) {
+      if (session.hasPending || this.pending.has(session.chatSessionId)) continue;
+      if (!candidate || session.lastActiveAt < candidate.lastActiveAt) {
+        candidate = session;
+      }
+    }
+    return candidate ? this.deleteSession(candidate.chatSessionId) : false;
   }
 
   private createSession(chatSessionId: string, req: AskRequest): SessionInfo {
@@ -518,7 +545,10 @@ export class SessionManager {
       }
       session.hasPending = true;
       session.requestStatus = "pending";
-      session.title = req.title?.trim() || session.title;
+      const nextTitle = req.title?.trim();
+      if (nextTitle && !session.titleManuallySet) {
+        session.title = nextTitle;
+      }
 
       let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -602,20 +632,25 @@ export class SessionManager {
       }, LONG_POLL_HEARTBEAT_MS);
       heartbeatTimer.unref?.();
 
-      if (!deduplicated) {
-        const wsMsg: WsNewRequest = {
-          type: "new_request",
-          chatSessionId,
-          title: session.title,
-          summary: req.summary,
-          question: req.question,
-          options: req.options,
-          isNewSession,
-          source: session.source,
-          workspaceRoot: session.workspaceRoot,
-        };
-        this.wsBroadcast(wsMsg);
-      }
+      // 始终广播 new_request：
+      // - 非去重：UI 据此追加新的 agent 历史项
+      // - 去重（CLI 重试或服务端重启后重连）：UI 据 requestId + resumed 识别，
+      //   不重复追加，但激活会话并触发通知，解决"UI 只收到 pending 状态
+      //   更新、看不到请求回来"的问题
+      const wsMsg: WsNewRequest = {
+        type: "new_request",
+        chatSessionId,
+        title: session.title,
+        summary: req.summary,
+        question: req.question,
+        options: req.options,
+        isNewSession,
+        source: session.source,
+        workspaceRoot: session.workspaceRoot,
+        ...(req.requestId ? { requestId: req.requestId } : {}),
+        ...(deduplicated ? { resumed: true } : {}),
+      };
+      this.wsBroadcast(wsMsg);
 
       this.wsBroadcast({
         type: "session_update",
@@ -660,12 +695,9 @@ export class SessionManager {
     } catch { /* 连接可能已被销毁 */ }
   }
 
-  private static readonly REPLY_AGENT_HINT =
-    "\n**使用super-ask工具回复我，回复时必须传入上次调用super-ask工具时返回的chatsessionid**";
-
   /**
    * Web UI 通过 WebSocket 提交用户回复（可选带附件元数据）
-   * history 存储干净文本，AI response 中追加 hint 引导 agent 继续使用 super-ask。
+   * history 存储展示给用户的文本，AI response 保持用户原始回复内容。
    */
   handleReply(
     chatSessionId: string,
@@ -686,12 +718,7 @@ export class SessionManager {
         ? attachments.filter(isValidFileAttachmentRef)
         : undefined;
 
-    const cleanFeedback = (displayFeedback ?? feedback)
-      .split(SessionManager.REPLY_AGENT_HINT)
-      .join("");
-    const rawFeedback = feedback
-      .split(SessionManager.REPLY_AGENT_HINT)
-      .join("");
+    const cleanFeedback = displayFeedback ?? feedback;
 
     const userEntry: HistoryEntry = {
       role: "user",
@@ -707,7 +734,7 @@ export class SessionManager {
       session.lastActiveAt = Date.now();
     }
 
-    const feedbackForAgent = rawFeedback + SessionManager.REPLY_AGENT_HINT;
+    const feedbackForAgent = feedback;
     const response: AskResponse = {
       chatSessionId,
       feedback: feedbackForAgent,
@@ -833,6 +860,28 @@ export class SessionManager {
     });
     void this.persistSession(chatSessionId);
     return true;
+  }
+
+  /**
+   * 设置会话标题。用户手动改名后，后续 ask 不再覆盖标题。
+   */
+  setSessionTitle(chatSessionId: string, title: string): string | null {
+    const session = this.sessions.get(chatSessionId);
+    if (!session) return null;
+    const trimmed = title.trim();
+    if (!trimmed) return null;
+    if (session.title === trimmed && session.titleManuallySet) {
+      return session.title;
+    }
+    session.title = trimmed;
+    session.titleManuallySet = true;
+    this.wsBroadcast({
+      type: "session_title_update",
+      chatSessionId,
+      title: session.title,
+    } satisfies WsSessionTitleUpdate);
+    void this.persistSession(chatSessionId);
+    return session.title;
   }
 
   /**

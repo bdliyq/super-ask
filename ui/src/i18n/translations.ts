@@ -44,6 +44,7 @@ export interface Translations {
 
   // 聊天视图
   unnamedSession: string;
+  editTitle: string;
   selectSessionHint: string;
   question: string;
   yourFeedback: string;
@@ -232,6 +233,7 @@ export const zh: Translations = {
   statusAwaiting: "等待中",
 
   unnamedSession: "未命名会话",
+  editTitle: "编辑标题",
   selectSessionHint: "请选择左侧会话，或等待 Agent 发起新请求。",
   question: "QUESTION",
   yourFeedback: "YOUR FEEDBACK",
@@ -404,6 +406,7 @@ export const en: Translations = {
   statusAwaiting: "Awaiting",
 
   unnamedSession: "Unnamed session",
+  editTitle: "Edit title",
   selectSessionHint: "Select a session or wait for an Agent request.",
   question: "QUESTION",
   yourFeedback: "YOUR FEEDBACK",

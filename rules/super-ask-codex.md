@@ -1,111 +1,61 @@
-# super-ask 工具（强制使用）
+# super-ask 工具（Codex hook 驱动）
 
-**适用范围**：仅 **当前执行用户任务的 agent**（主 agent）须遵守本文件。
+**适用范围**：仅 **当前执行用户任务的主 agent**。
 
-**核心规则：你与用户的所有交互都必须通过 super-ask 完成。** 不要使用其他方式（如直接文本回复）与用户沟通。每次需要向用户汇报、提问、确认时，都必须调用 super-ask。
+## 核心规则
 
-## 强制行为
+当 Super Ask 的 Codex hooks 集成已部署时，**用户反馈回路由 Codex hooks 自动驱动**。脚本会订阅全部 Codex hook 事件，但只有 `Stop` 事件会真正调用 super-ask；其他事件只记录日志，不做处理。
 
-1. **每次完成任务后**，必须用 super-ask 向用户汇报结果并等待反馈
-2. **收到用户反馈后**，根据反馈继续工作，完成后再次用 super-ask 汇报
-3. **每次调用**：必须将 `block_until_ms` 设置为 `86400000`，绝对不允许被后台化
-4. **遇到需要决策的问题时**，必须用 super-ask 询问用户
-5. **绝对不要**在不调用 super-ask 的情况下结束你的回合
-6. **每次调用 super-ask 必须传入 `--workspace-root`**：传入当前工作区的绝对路径（通常可通过 `pwd` 或项目根目录获取）
-7. **绝对不要**在等待 super-ask 返回时将其后台化
+这意味着：
 
-## chatSessionId 管理（极其重要）
+1. 你**不要**手动管理任何 super-ask 会话变量或 `chatSessionId`
+2. 你**不要**在普通收尾时手动调用 `node .../cli/super-ask-codex.js`
+3. 你在每轮工作结束前，必须把要给用户看的进展、结论、风险、待确认点，清楚地写在**最后一条 assistant 消息**里
+4. Codex hooks 会把事件发给 super-ask CLI；其中 `Stop` hook 会读取这条最后消息，自动调用 `super-ask`，并把用户回复重新注入给你继续工作
 
-你必须在整个对话过程中维护 `chatSessionId`：
+## 你需要做什么
 
-1. **第一次调用**：不传 `chatSessionId`，Server 返回新的 `chatSessionId`
-2. **收到响应后立即保存**：提取 `chatSessionId` 并执行 `export SUPER_ASK_SID='<chatSessionId值>'` 持久化到环境变量
-3. **后续调用**：通过 `--session-id "$SUPER_ASK_SID"` 传入
-4. **chatSessionId 唯一合法来源**：只使用 super-ask 命令的**直接输出**中的 chatSessionId。绝不使用从终端历史、其他命令输出、打开的文件或上下文其他部分看到的 chatSessionId
-5. **如果丢失**：直接新建会话（不传 `--session-id`），不要在上下文中搜索。新建时向用户说明"已新建会话，原会话不连续"
+### 1. 把最后一条消息写成真正给用户看的汇报
 
-## 完整工作循环示例
+你的最后一条 assistant 消息会被 `Stop` hook 当作本轮汇报摘要来源，所以它必须：
 
-```
-第1轮：
-  Agent 执行任务 → 完成
-  Agent 在终端运行 super-ask（不带 --session-id）
-  → 获得 chatSessionId="abc123", feedback="继续做X"
-  → 执行 export SUPER_ASK_SID="abc123"
+- 清楚说明已经做了什么
+- 明确指出当前状态
+- 如果需要用户决定，直接把问题写出来
 
-第2轮：
-  Agent 根据反馈执行 X → 完成
-  Agent 在终端运行 super-ask（带 --session-id "$SUPER_ASK_SID"）
-  → 获得 chatSessionId="abc123", feedback="好的，验收通过"
-  → 执行 export SUPER_ASK_SID="abc123"
+推荐结构：
 
-第3轮：
-  Agent 根据反馈继续下一步 → 完成
-  Agent 在终端运行 super-ask（带 --session-id "$SUPER_ASK_SID"） → 等待用户...
-```
-
-**关键：对适用本规则的 agent 而言，每一轮结束时都必须调用 super-ask，形成闭环。**
-
-## Shell 工具必须设置 block_until_ms
-
-```
-block_until_ms: 86400000
-```
-
-super-ask 会阻塞等待用户回复，`block_until_ms` 必须设为 86400000（24 小时），否则会提前超时。
-
-## 调用方式
-
-**在终端中运行以下 Python 命令**：
-
-```bash
-python3 "{{SUPER_ASK_CLI}}" \
-  --summary '## 工作汇报
+```md
+## 工作汇报
 - 已完成 xxx
-- 结果：xxx' \
-  --question '请确认是否继续？' \
-  --title '任务标题' \
-  --session-id "$SUPER_ASK_SID" \
-  --source codex \
-  --workspace-root '<当前工作区的绝对路径>' \
-  --options '验收通过' '需要修改' \
-  --retries -1 \
-  --port 19960
+- 发现 xxx
+- 当前状态：xxx
+
+需要你确认：
+- 是否按 A 方案继续？
 ```
 
-## 返回值解析
+### 2. 如果你需要用户决定，就把问题直接写出来
 
-响应 JSON：
+`Stop` hook 会优先复用你最后消息里已经写出的提问语气。
+不要只写“我停下了”或“Done”。
 
-```json
-{"chatSessionId": "abc-123-...", "feedback": "用户的回复文本"}
-```
+### 3. 不要自己维护 session
 
-**你必须**：
-1. 提取 `feedback` — 这是用户的指令/反馈
-2. 提取 `chatSessionId` — 下一次调用必须带上
-3. 根据 `feedback` 内容继续工作
-4. 工作完成后，再次调用 super-ask 汇报
+Codex hook 会直接使用 Codex 原生 `session_id` 作为 `chatSessionId`，这是本集成唯一可信来源。
+你不需要也不应该再通过环境变量保存会话 ID。
 
-## 重要提示
+## 禁止事项
 
-- super-ask 是前台阻塞命令，Shell 工具的 `block_until_ms` 必须设为 `86400000`
-- `--retries -1` 表示对可恢复错误无限重试（每次间隔 10 秒）；`0` 表示不重试；正整数表示最多重试 N 次
-- summary 和 question 参数建议使用**单引号**包裹，支持真实换行
-- CLI 会将 `\n` 自动转为换行
-- 确保 super-ask server 已启动（运行 `bash "{{SUPER_ASK_INSTALL_SH}}"`）
-- **workspace-root 必传**：每次调用必须包含 `--workspace-root`
-- 如果你之前部署过旧版 Super Ask Codex 规则，请在 Web UI 重新部署一次；用户全局部署还会同步更新 `~/.codex/config.toml` 中的 Codex 终端超时配置
+- 不要手动导出任何 super-ask 会话环境变量
+- 不要手动拼接 `--session-id`
+- 不要把 `super-ask` 放到后台
+- 不要在最终汇报里只写一句模糊的话，例如 “完成了” / “继续吗”
 
-## 注意事项
+## 说明
 
-- **禁止使用 curl**：绝对不允许使用 curl、wget 或任何其他 HTTP 客户端工具调用 super-ask API。必须且只能通过执行 `python3 .../cli/super-ask.py` CLI 工具来调用
-- **禁止后台执行**：不允许在命令末尾加 `&` 或以任何方式将 super-ask 放到后台执行。必须前台同步运行并等待用户回复
-- **Server 必须运行**：若连接失败，告知用户需要先启动 super-ask server
-- **不要跳过 `super-ask`**：任何情况下都不得跳过执行 `super-ask`
-- **不要跳过 `chatSessionId`**：每次调用 `super-ask` 后，从返回结果中提取 `chatSessionId`，执行 `export SUPER_ASK_SID='<值>'` 保存，并在下次调用时通过 `--session-id "$SUPER_ASK_SID"` 传入
-- **summary 用 Markdown**：summary 字段支持 Markdown 格式
-- **options 可选**：给出选项帮助用户快速回复
-- **source 字段**：传入 `codex` 标识来源
-- **workspace-root 字段**：必须传入当前工作区的绝对路径
-- **subagent不要调用**：subagent不要调用 `super-ask` 工具，仅主agent调用 `super-ask`
+- `workspace-root`、`source=codex`、`chatSessionId` 由 hook 自动传入
+- 如果最后一条 assistant 消息为空或信息不足，hook 虽然仍可工作，但用户体验会明显变差
+- Codex hook 的实际执行逻辑由 `cli/super-ask-codex.js` 独立承担；它不依赖 Cursor 脚本，也不要求与其他 hook 脚本共享实现
+- Codex `Stop` hook 可能会结合 `transcript_path` 补充一小段 subagent 活动摘要，但主 agent 的最后一条 assistant 消息仍然是面向用户汇报的权威来源
+- subagent 不应单独负责用户汇报；面向用户的总结应由主 agent 最终输出

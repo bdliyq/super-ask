@@ -118,8 +118,7 @@ test("WsHub sends accepted reply_result after a valid reply", async () => {
     assert.equal(blockingResponses.length, 1);
     assert.deepEqual(blockingResponses[0], {
       chatSessionId: sid,
-      feedback:
-        "已收到，开始处理\n**使用super-ask工具回复我，回复时必须传入上次调用super-ask工具时返回的chatsessionid**",
+      feedback: "已收到，开始处理",
     });
 
     assert.equal(

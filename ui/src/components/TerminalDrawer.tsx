@@ -3,6 +3,7 @@ import "@xterm/xterm/css/xterm.css";
 import { useTerminal } from "../hooks/useTerminal";
 import { useTerminalWs } from "../hooks/useTerminalWs";
 import { useI18n } from "../i18n";
+import { startBodyResizeSession } from "../utils/bodyResizeSession";
 
 const WIDTH_MAP_KEY = "super-ask-terminal-width-map";
 const MAX_MAP_KEY = "super-ask-terminal-maximized-map";
@@ -102,6 +103,17 @@ export function TerminalDrawer({ open, sessionId, workspaceRoot }: TerminalDrawe
   const startX = useRef(0);
   const startPct = useRef(DEFAULT_WIDTH_PCT);
   const containerRef = useRef<HTMLElement | null>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
+  const widthPctRef = useRef(widthPct);
+
+  useEffect(() => {
+    widthPctRef.current = widthPct;
+  }, [widthPct]);
+
+  useEffect(() => () => {
+    resizeCleanupRef.current?.();
+    resizeCleanupRef.current = null;
+  }, []);
 
   const toggleMaximize = useCallback(() => {
     setMaximized((v) => {
@@ -125,11 +137,11 @@ export function TerminalDrawer({ open, sessionId, workspaceRoot }: TerminalDrawe
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     if (maximized) return;
     e.preventDefault();
+    resizeCleanupRef.current?.();
     dragging.current = true;
     startX.current = e.clientX;
     startPct.current = widthPct;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+    widthPctRef.current = widthPct;
 
     const parentWidth = containerRef.current?.parentElement?.clientWidth ?? window.innerWidth;
 
@@ -138,23 +150,18 @@ export function TerminalDrawer({ open, sessionId, workspaceRoot }: TerminalDrawe
       const deltaPx = startX.current - ev.clientX;
       const deltaPct = (deltaPx / parentWidth) * 100;
       const next = Math.max(MIN_WIDTH_PCT, Math.min(MAX_WIDTH_PCT, startPct.current + deltaPct));
+      widthPctRef.current = next;
       setWidthPct(next);
     };
 
-    const onUp = () => {
-      dragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      setWidthPct((v) => {
-        persistWidth(v);
-        return v;
-      });
-    };
-
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    resizeCleanupRef.current = startBodyResizeSession({
+      onMove,
+      onEnd: () => {
+        dragging.current = false;
+        persistWidth(widthPctRef.current);
+        resizeCleanupRef.current = null;
+      },
+    });
   }, [widthPct, maximized, persistWidth]);
 
   const effectiveWidth = open ? (maximized ? "100%" : `${widthPct}%`) : "0";

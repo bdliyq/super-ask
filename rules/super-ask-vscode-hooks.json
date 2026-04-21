@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "node \"{{SUPER_ASK_VSCODE_HOOK_CLI}}\" --port 19960 --retries -1",
+        "timeout": 86400
+      }
+    ]
+  }
+}

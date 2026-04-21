@@ -13,6 +13,7 @@ import type {
   FileAttachment,
   HealthResponse,
   OpenPathRequest,
+  PredefinedMessage,
   SuperAskConfig,
   UndeployRequest,
 } from "../../shared/types";
@@ -105,6 +106,23 @@ function mimeForPath(filePath: string): string {
 /**
  * 读取 POST JSON 体（带大小上限）
  */
+/**
+ * 校验并规范化 PUT /api/predefined-msgs 的请求体；非法结构返回 null。
+ * active 缺省或非布尔时按 false 处理，兼容旧版仅含 id/text 的条目。
+ */
+function normalizePredefinedMsgsBody(parsed: unknown): PredefinedMessage[] | null {
+  if (!Array.isArray(parsed)) return null;
+  const out: PredefinedMessage[] = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") return null;
+    const o = item as Record<string, unknown>;
+    if (typeof o.id !== "string" || typeof o.text !== "string") return null;
+    const active = typeof o.active === "boolean" ? o.active : false;
+    out.push({ id: o.id, text: o.text, active });
+  }
+  return out;
+}
+
 async function readJsonBody(
   req: IncomingMessage,
   limit: number
@@ -626,6 +644,37 @@ export function startSuperAsk(
       return;
     }
 
+    // POST /api/session-title — 修改会话标题
+    if (method === "POST" && pathname === "/api/session-title") {
+      if (!requireAuth(req, res)) return;
+      let parsed: unknown;
+      try { parsed = await readJsonBody(req, 4096); } catch {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: "无效请求体" }));
+        return;
+      }
+      const b = parsed as Record<string, unknown>;
+      const sid = typeof b.chatSessionId === "string" ? b.chatSessionId : "";
+      const title = typeof b.title === "string" ? b.title : "";
+      if (!sid || !title.trim()) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "缺少 chatSessionId 或 title" }));
+        return;
+      }
+      const nextTitle = sessionManager.setSessionTitle(sid, title);
+      if (!nextTitle) {
+        res.statusCode = 404;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ success: false }));
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ success: true, title: nextTitle }));
+      return;
+    }
+
     // POST /api/pinned-sessions — 更新会话列表 pin 顺序
     if (method === "POST" && pathname === "/api/pinned-sessions") {
       if (!requireAuth(req, res)) return;
@@ -873,16 +922,18 @@ export function startSuperAsk(
         res.end(JSON.stringify({ error: "请求体无效或过大" }));
         return;
       }
-      if (!Array.isArray(parsed)) {
+      const normalized = normalizePredefinedMsgsBody(parsed);
+      if (!normalized) {
         res.statusCode = 400;
         res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "请求体须为 JSON 数组" }));
+        res.end(JSON.stringify({ error: "请求体须为 JSON 数组，元素须含 id、text 字段" }));
         return;
       }
       const filePath = join(SUPER_ASK_DIR, "predefined-msgs.json");
       try {
         await mkdir(SUPER_ASK_DIR, { recursive: true });
-        await writeFile(filePath, JSON.stringify(parsed, null, 2), "utf-8");
+        await writeFile(filePath, JSON.stringify(normalized, null, 2), "utf-8");
+        wsHub.broadcast({ type: "predefined_msgs_sync", messages: normalized });
         res.statusCode = 200;
         res.setHeader("Content-Type", "application/json; charset=utf-8");
         res.end(JSON.stringify({ success: true }));
@@ -979,20 +1030,35 @@ export function startSuperAsk(
       res.end(JSON.stringify({ success: true }));
 
       const logFile = join(SUPER_ASK_DIR, "super-ask.log");
+      // 在 exit 之前先优雅通知所有长连接 hook：
+      // - 广播 SERVER_SHUTTING_DOWN 给 pending 的 /super-ask 请求（会触发
+      //   CLI 端 retryable 分支、自动在新进程起来后重连）；
+      // - 标记 shuttingDown，拒绝此刻进入的新请求；
+      // - 持久化 session 状态（把 pending 翻成 cancelled），新进程 loadFromDisk
+      //   后与 UI sync 状态一致。
+      // 之前的实现是 500ms setTimeout 后直接 process.exit(0)，会让 hook 的
+      // HTTP 长连接被 TCP 强制断开，CLI 没有结构化信号，重连时机也难以把控。
       setTimeout(() => {
-        try {
-          const out = openSync(logFile, "a");
-          const child = spawn(process.execPath, process.argv.slice(1), {
-            detached: true,
-            stdio: ["ignore", out, out],
-            cwd: process.cwd(),
-            env: { ...process.env },
-          });
-          child.unref();
-        } catch (e) {
-          console.error("[server] 重启失败:", e);
-        }
-        process.exit(0);
+        void (async () => {
+          try {
+            await sessionManager.shutdownNotifyAgents();
+          } catch (e) {
+            console.error("[server] 优雅关闭时通知 agent 失败:", e);
+          }
+          try {
+            const out = openSync(logFile, "a");
+            const child = spawn(process.execPath, process.argv.slice(1), {
+              detached: true,
+              stdio: ["ignore", out, out],
+              cwd: process.cwd(),
+              env: { ...process.env },
+            });
+            child.unref();
+          } catch (e) {
+            console.error("[server] 重启失败:", e);
+          }
+          process.exit(0);
+        })();
       }, 500);
       return;
     }

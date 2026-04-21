@@ -93,6 +93,27 @@ test("SessionTabs marks pinned rows and renders pin controls for hover actions",
   assert.doesNotMatch(html, />✕</);
 });
 
+test("SessionTabs shows custom tags for pinned sessions in the pinned group", () => {
+  const html = renderSessionTabsWithStoredLocale("en", {
+    sessions: [
+      makeSession({
+        chatSessionId: "session-pinned",
+        title: "Pinned Session",
+        source: "cursor",
+        tags: ["alpha", "beta"],
+      }),
+    ],
+    activeSessionId: "session-pinned",
+    pinnedSessionIds: ["session-pinned"],
+    onTogglePin: () => {},
+  });
+
+  assert.match(
+    html,
+    /session-tabs__group--pinned[\s\S]*session-tabs__item-title[^>]*>Pinned Session<\/span>[\s\S]*session-tabs__tags[\s\S]*session-tabs__tag[^>]*>alpha<\/span>[\s\S]*session-tabs__tag[^>]*>beta<\/span>/,
+  );
+});
+
 test("buildSessionGroups splits sessions into today yesterday recent7 and older buckets", () => {
   const buildSessionGroups = (sessionTabsModule as {
     buildSessionGroups?: (sessions: SessionInfo[], now?: number) => Array<{ key: string; sessions: SessionInfo[] }>;

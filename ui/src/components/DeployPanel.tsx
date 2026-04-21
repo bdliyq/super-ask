@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { DeployPlatform, DeployScope, DeployStatusResponse } from "@shared/types";
 import { withAuthHeaders } from "../auth";
 import { useI18n } from "../i18n";
@@ -86,8 +86,8 @@ const DEPLOY_STEP_NAME_EN: Record<string, string> = {
   "删除 logs 目录": "Delete logs directory",
   "删除 config.json": "Delete config.json",
   "删除 super-ask.pid": "Delete super-ask.pid",
-  "部署 Cursor hooks.json（stop hook）": "Deploy Cursor hooks.json (stop hook)",
-  "部署用户级 Cursor hooks.json（stop hook）": "Deploy user-level Cursor hooks.json (stop hook)",
+  "部署 Cursor hooks.json（全事件 hook）": "Deploy Cursor hooks.json (all hook events)",
+  "部署用户级 Cursor hooks.json（全事件 hook）": "Deploy user-level Cursor hooks.json (all hook events)",
   "清理 Cursor hooks.json 中的 super-ask hook": "Remove super-ask hook from Cursor hooks.json",
   "清理用户级 Cursor hooks.json 中的 super-ask hook": "Remove super-ask hook from user-level Cursor hooks.json",
 };
@@ -113,6 +113,30 @@ const DEPLOY_STEP_ID_LABELS: Partial<Record<DeployStep["id"], Record<Locale, str
     zh: "网络或跨域错误",
     en: "Network or CORS error",
   },
+  "deploy_codex_hooks": {
+    zh: "部署 ~/.codex/hooks.json 中的 super-ask Codex hooks",
+    en: "Deploy super-ask Codex hooks into ~/.codex/hooks.json",
+  },
+  "verify_codex_hooks": {
+    zh: "验证 Codex hooks.json 已启用 super-ask Codex hooks",
+    en: "Verify Codex hooks.json has super-ask Codex hooks enabled",
+  },
+  "enable_codex_hooks_feature": {
+    zh: "确保 ~/.codex/config.toml 中启用 codex_hooks",
+    en: "Ensure codex_hooks is enabled in ~/.codex/config.toml",
+  },
+  "deploy_codex_hooks_shared": {
+    zh: "确保 ~/.codex/hooks.json 中已安装 super-ask Codex hooks",
+    en: "Ensure ~/.codex/hooks.json has super-ask Codex hooks installed",
+  },
+  "verify_codex_hooks_shared": {
+    zh: "验证共享 Codex hooks.json 已启用 super-ask Codex hooks",
+    en: "Verify shared Codex hooks.json has super-ask Codex hooks enabled",
+  },
+  "remove_codex_hooks_user": {
+    zh: "清理 ~/.codex/hooks.json 中的 super-ask Codex hooks",
+    en: "Remove super-ask Codex hooks from ~/.codex/hooks.json",
+  },
 };
 
 const DEPLOY_STEP_DETAIL_EN_FRAGMENTS: Record<string, string> = {
@@ -135,6 +159,10 @@ const DEPLOY_STEP_DETAIL_EN_FRAGMENTS: Record<string, string> = {
     "context in Qwen settings.json must be an object",
   "context.fileName 必须是字符串或字符串数组":
     "context.fileName must be a string or an array of strings",
+  "共享 hooks.json 中未找到 super-ask Codex hook":
+    "super-ask Codex hook was not found in shared hooks.json",
+  "hooks.json 中未找到 super-ask Codex hook":
+    "super-ask Codex hook was not found in hooks.json",
 };
 
 export function getDeployStepDisplayName(

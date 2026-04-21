@@ -39,7 +39,7 @@ flowchart TB
     codex["Codex CLI<br/>Agent"]
   end
 
-  cli["Python CLI (super-ask.py)<br/>POST /super-ask<br/>阻塞等待用户回复"]
+  cli["Node CLI (super-ask.js)<br/>POST /super-ask<br/>阻塞等待用户回复"]
 
   subgraph server["Node.js Server (默认端口 19960)"]
     direction LR
@@ -121,21 +121,22 @@ bash install.sh
 
 | 平台 | 规则文件位置 | 范围 |
 |---|---|---|
-| **Cursor** | `.cursor/rules/super-ask.mdc` | 工作区 / 用户全局 |
+| **Cursor** | `.cursor/rules/super-ask.mdc` + `.cursor/hooks.json` | 工作区 / 用户全局 |
 | **VS Code Copilot** | `.copilot/instructions/super-ask.instructions.md` | 工作区 / 用户全局 |
 | **Codex** | `AGENTS.md`（注入标记块） | 工作区 / 用户全局 |
 | **OpenCode** | `AGENTS.md` + `.opencode/tools/super-ask.ts`（用户级为 `~/.config/opencode/...`） | 工作区 / 用户全局 |
 | **Qwen CLI** | `super-ask-qwen.md` + `.qwen/settings.json` | 工作区 / 用户全局 |
 
 部署后，Agent 会在每次任务完成时自动调用 Super Ask 汇报并等待反馈。
+其中 Cursor 会把所有 hook 事件注册到 `super-ask-cursor.js`，但只在 `stop` 事件里真正调用 super-ask，其余事件仅记录日志。
 其中 OpenCode 会通过自定义工具直接调用 super-ask HTTP API，并自动读取本机 `~/.super-ask` 配置与 token。
 OpenCode 自定义工具模板基于官方 `@opencode-ai/plugin` 接口约定生成。
 
 Codex 额外说明：
 
-- **用户全局部署**：除了更新 `~/.codex/AGENTS.md`，还会写入或更新 `~/.codex/config.toml` 中的 Codex 终端超时配置（同时兼容 `background_terminal_max_timeout` 与 `background_terminal_timeout`）。
-- **工作区部署**：只更新当前项目的 `AGENTS.md`，**不会**修改 `~/.codex/config.toml`。
-- **旧版迁移**：如果你之前用旧版 Super Ask 部署过 Codex，请重新部署一次，以刷新 `AGENTS.md` 中注入的 super-ask 规则块。
+- **用户全局部署**：除了更新 `~/.codex/AGENTS.md`，还会写入或更新 `~/.codex/config.toml` 中的 Codex 终端超时配置，并确保 `[features].codex_hooks = true`，然后在 `~/.codex/hooks.json` 中安装 super-ask 的 Codex hooks，让 super-ask 由 hook 自动调用。
+- **工作区部署**：会更新当前项目的 `AGENTS.md`，并确保用户级 `~/.codex/hooks.json` 已安装 super-ask 的 Codex hooks；同时会在用户级 `~/.codex/config.toml` 中确保 `[features].codex_hooks = true`，但**不会**修改 Codex 终端超时配置。
+- **旧版迁移**：如果你之前用旧版 Super Ask 部署过 Codex，请重新部署一次，以刷新 `AGENTS.md` 中注入的规则块，并安装新的 hook 驱动机制。
 
 ## 交互流程
 
@@ -162,7 +163,7 @@ Codex 额外说明：
 ## CLI 用法
 
 ```bash
-python3 cli/super-ask.py \
+node cli/super-ask.js \
   --summary '## 工作汇报
 - 已完成 X
 - 结果：Y' \
@@ -203,8 +204,9 @@ python3 cli/super-ask.py \
 
 ```
 super-ask/
-├── cli/                    # Python CLI 客户端
-│   └── super-ask.py
+├── cli/                    # Node CLI 客户端
+│   ├── super-ask.js
+│   └── super-ask-cursor.js
 ├── server/                 # Node.js 服务端
 │   ├── src/
 │   │   ├── index.ts        # 入口（start / stop / status + daemon）
@@ -317,7 +319,7 @@ flowchart TB
     codex["Codex CLI<br/>Agent"]
   end
 
-  cli["Python CLI (super-ask.py)<br/>POST /super-ask<br/>Blocks until user replies"]
+  cli["Node CLI (super-ask.js)<br/>POST /super-ask<br/>Blocks until user replies"]
 
   subgraph server["Node.js Server (default port 19960)"]
     direction LR
@@ -399,21 +401,22 @@ Open Web UI → Settings → Deploy panel, select platforms and scope for one-cl
 
 | Platform | Rule Location | Scope |
 |---|---|---|
-| **Cursor** | `.cursor/rules/super-ask.mdc` | Workspace / User-global |
+| **Cursor** | `.cursor/rules/super-ask.mdc` + `.cursor/hooks.json` | Workspace / User-global |
 | **VS Code Copilot** | `.copilot/instructions/super-ask.instructions.md` | Workspace / User-global |
 | **Codex** | `AGENTS.md` (injected marked block) | Workspace / User-global |
 | **OpenCode** | `AGENTS.md` + `.opencode/tools/super-ask.ts` (user-global lives under `~/.config/opencode/...`) | Workspace / User-global |
 | **Qwen CLI** | `super-ask-qwen.md` + `.qwen/settings.json` | Workspace / User-global |
 
 After deployment, agents automatically call Super Ask to report and wait for feedback at each task checkpoint.
+For Cursor, deployment registers every Cursor hook event to `super-ask-cursor.js`, but only the `stop` event actually calls super-ask; all other hook events just log their payloads.
 For OpenCode, deployment also installs a custom tool that talks to the super-ask HTTP API directly and auto-loads local `~/.super-ask` config and auth token.
 The OpenCode custom tool template is generated against the official `@opencode-ai/plugin` tool contract.
 
 Additional notes for Codex:
 
-- **User-global deploy**: besides updating `~/.codex/AGENTS.md`, it also writes Codex terminal timeout settings into `~/.codex/config.toml` (covering both `background_terminal_max_timeout` and `background_terminal_timeout` for compatibility).
-- **Workspace deploy**: only updates the current project's `AGENTS.md`; it does **not** modify `~/.codex/config.toml`.
-- **Migration**: if you deployed Codex with an older Super Ask release, redeploy once to refresh the injected super-ask rule block in `AGENTS.md`.
+- **User-global deploy**: besides updating `~/.codex/AGENTS.md`, it also writes Codex terminal timeout settings into `~/.codex/config.toml`, ensures `[features].codex_hooks = true`, and installs the super-ask Codex hooks in `~/.codex/hooks.json`, so super-ask is triggered by the hook automatically.
+- **Workspace deploy**: updates the current project's `AGENTS.md`, ensures the user-level `~/.codex/hooks.json` contains the super-ask Codex hooks, and makes sure `[features].codex_hooks = true` exists in the user-level `~/.codex/config.toml`; it does **not** change Codex terminal timeout settings.
+- **Migration**: if you deployed Codex with an older Super Ask release, redeploy once to refresh the injected rule block in `AGENTS.md` and install the new hook-driven flow.
 
 ## Interaction Flow
 
@@ -440,7 +443,7 @@ Additional notes for Codex:
 ## CLI Usage
 
 ```bash
-python3 cli/super-ask.py \
+node cli/super-ask.js \
   --summary '## Progress Report
 - Completed X
 - Result: Y' \
@@ -481,8 +484,9 @@ Automatic retries only apply to recoverable errors (connection failures, 503 shu
 
 ```
 super-ask/
-├── cli/                    # Python CLI client
-│   └── super-ask.py
+├── cli/                    # Node CLI client
+│   ├── super-ask.js
+│   └── super-ask-cursor.js
 ├── server/                 # Node.js server
 │   ├── src/
 │   │   ├── index.ts        # Entry (start / stop / status + daemon)

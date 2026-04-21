@@ -619,14 +619,14 @@ describe("MarkdownContent 路径检测", () => {
     const onOpenPath = vi.fn();
     render(
       <MarkdownContent
-        source="修改了 `/Users/leoli/workspace/super-ask/cli/super-ask.py`"
+        source="修改了 `/Users/leoli/workspace/super-ask/cli/super-ask.js`"
         onOpenPath={onOpenPath}
       />,
     );
-    const pathEl = screen.getByText("/Users/leoli/workspace/super-ask/cli/super-ask.py");
+    const pathEl = screen.getByText("/Users/leoli/workspace/super-ask/cli/super-ask.js");
     expect(pathEl).toHaveClass("clickable-path");
     fireEvent.click(pathEl);
-    expect(onOpenPath).toHaveBeenCalledWith("/Users/leoli/workspace/super-ask/cli/super-ask.py");
+    expect(onOpenPath).toHaveBeenCalledWith("/Users/leoli/workspace/super-ask/cli/super-ask.js");
   });
 
   it("将 ~ 路径渲染为可点击元素", () => {
@@ -717,7 +717,7 @@ Expected: 构建成功（注意：Node.js 17 环境可能有已知的 `node:fs/p
 - [ ] **Step 3: 手动验证**
 
 启动 server 和 UI，在消息中检查：
-1. 绝对路径（如 `/Users/leoli/workspace/super-ask/cli/super-ask.py`）显示为带下划线的可点击样式
+1. 绝对路径（如 `/Users/leoli/workspace/super-ask/cli/super-ask.js`）显示为带下划线的可点击样式
 2. 点击后 Finder 打开并高亮对应文件
 3. 目录路径（如 `/Users/leoli/workspace/super-ask/`）点击后 Finder 打开目录
 4. `~/` 路径正常解析和打开

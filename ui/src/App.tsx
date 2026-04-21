@@ -8,8 +8,15 @@ import type { AutoReplyTemplate, FileAttachment, ReadFileResponse, WsServerMessa
 import { useSessions } from "./hooks/useSessions";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useI18n } from "./i18n";
-import { getActivePredefinedSuffix, isNotificationEnabled, loadAutoReplyTemplates } from "./components/SystemSettings";
+import {
+  emitPredefinedMsgsSync,
+  getActivePredefinedSuffix,
+  isNotificationEnabled,
+  loadAutoReplyTemplates,
+  loadPredefinedMsgs,
+} from "./components/SystemSettings";
 import { withAuthHeaders } from "./auth";
+import { startBodyResizeSession } from "./utils/bodyResizeSession";
 
 const THEME_STORAGE_KEY = "super-ask-theme";
 const PANEL_WIDTH_KEY = "super-ask-panel-width";
@@ -116,6 +123,24 @@ export default function App() {
     }
   }, []);
 
+  const handleSetSessionTitle = useCallback(async (chatSessionId: string, title: string) => {
+    try {
+      const resp = await fetch("/api/session-title", {
+        method: "POST",
+        headers: withAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ chatSessionId, title }),
+      });
+      if (!resp.ok) {
+        console.warn("[session-title] set failed:", resp.status);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.warn("[session-title] set failed:", e);
+      return false;
+    }
+  }, []);
+
   const togglePanel = useCallback(() => {
     setPanelVisible((v) => !v);
   }, []);
@@ -127,14 +152,19 @@ export default function App() {
   const dragging = useRef(false);
   const startX = useRef(0);
   const startW = useRef(DEFAULT_PANEL_WIDTH);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => {
+    resizeCleanupRef.current?.();
+    resizeCleanupRef.current = null;
+  }, []);
 
   const onResizeStart = useCallback((e: ReactMouseEvent) => {
     e.preventDefault();
+    resizeCleanupRef.current?.();
     dragging.current = true;
     startX.current = e.clientX;
     startW.current = panelWidth;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
 
     const onMove = (ev: globalThis.MouseEvent) => {
       if (!dragging.current) return;
@@ -143,16 +173,13 @@ export default function App() {
       setPanelWidth(next);
     };
 
-    const onUp = () => {
-      dragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    resizeCleanupRef.current = startBodyResizeSession({
+      onMove,
+      onEnd: () => {
+        dragging.current = false;
+        resizeCleanupRef.current = null;
+      },
+    });
   }, [panelWidth]);
 
   const {
@@ -253,10 +280,21 @@ export default function App() {
   }, [t]);
 
   const handleServerMessageWithQueue = useCallback((msg: WsServerMessage) => {
+    if (msg.type === "predefined_msgs_sync") {
+      emitPredefinedMsgsSync(msg.messages);
+      return;
+    }
     handleServerMessage(msg);
+    if (msg.type === "sync") {
+      void loadPredefinedMsgs().then((msgs) => emitPredefinedMsgsSync(msgs));
+    }
     if (msg.type === "new_request") {
       try {
+        // resumed=true 表示同一 requestId 的 hook 重新挂上长连接（CLI 重试
+        // 或服务端重启后恢复），此时不再弹系统通知，以免用户反复被打扰；
+        // UI 内部仍然会通过 useSessions 激活该会话并恢复 pending 状态。
         if (
+          !msg.resumed &&
           isNotificationEnabled() &&
           "Notification" in window &&
           Notification.permission === "granted"
@@ -459,6 +497,7 @@ export default function App() {
             }
             showPinPanel={showPinPanel}
             onSetShowPinPanel={setShowPinPanel}
+            onSetTitle={handleSetSessionTitle}
             fileDrawerOpen={fileDrawerOpen}
             fileDrawerData={fileDrawerData}
             onSetFileDrawerData={handleSetFileDrawerData}

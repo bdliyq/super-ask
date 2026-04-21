@@ -17,6 +17,7 @@ interface ChatViewProps {
     feedback: string,
     attachments?: FileAttachment[]
   ) => Promise<void>;
+  onSetTitle?: (chatSessionId: string, title: string) => Promise<boolean>;
   queuedReplies?: QueuedReply[];
   onRemoveQueuedReply?: (index: number) => void;
   terminalSlot?: React.ReactNode;
@@ -50,6 +51,7 @@ function groupInteractions(history: HistoryEntry[]) {
 export function ChatView({
   session,
   onSendReply,
+  onSetTitle,
   queuedReplies = [],
   onRemoveQueuedReply,
   terminalSlot,
@@ -68,7 +70,11 @@ export function ChatView({
   const [quotedRefs, setQuotedRefs] = useState<QuotedRef[]>([]);
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagInputValue, setTagInputValue] = useState("");
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleInputValue, setTitleInputValue] = useState("");
   const tagInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleCommitInFlightRef = useRef(false);
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const pinnedSet = new Set(session?.pinnedIndices ?? []);
@@ -177,6 +183,18 @@ export function ChatView({
     }
   }, [showTagInput]);
 
+  useEffect(() => {
+    if (editingTitle) {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    }
+  }, [editingTitle]);
+
+  useEffect(() => {
+    setEditingTitle(false);
+    setTitleInputValue(session?.title ?? "");
+  }, [session?.chatSessionId, session?.title]);
+
   const scrollToCard = useCallback((index: number) => {
     const anchor = document.getElementById(`interaction-${index}`);
     const container = messagesRef.current;
@@ -225,6 +243,33 @@ export function ChatView({
     }
   }, [session?.chatSessionId, session?.history.length, queuedReplies.length]);
 
+  const commitTitleEdit = useCallback(async () => {
+    if (!session || !onSetTitle || titleCommitInFlightRef.current) {
+      setEditingTitle(false);
+      return;
+    }
+    const trimmed = titleInputValue.trim();
+    if (!trimmed || trimmed === session.title) {
+      setTitleInputValue(session.title);
+      setEditingTitle(false);
+      return;
+    }
+    titleCommitInFlightRef.current = true;
+    try {
+      const accepted = await onSetTitle(session.chatSessionId, trimmed);
+      if (accepted) {
+        setEditingTitle(false);
+      }
+    } finally {
+      titleCommitInFlightRef.current = false;
+    }
+  }, [onSetTitle, session, titleInputValue]);
+
+  const cancelTitleEdit = useCallback(() => {
+    setTitleInputValue(session?.title ?? "");
+    setEditingTitle(false);
+  }, [session?.title]);
+
   if (!session) {
     return (
       <div className="chat-view chat-view--empty">
@@ -243,7 +288,49 @@ export function ChatView({
           <div className="chat-view__banner-left">
             <SourceBadge source={session.source} />
             <div className="chat-view__banner-title-group">
-              <span className="chat-view__banner-title">{session.title || t.unnamedSession}</span>
+              {editingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  className="chat-view__title-input"
+                  type="text"
+                  value={titleInputValue}
+                  onChange={(e) => setTitleInputValue(e.target.value)}
+                  onInput={(e) => {
+                    setTitleInputValue((e.target as HTMLInputElement).value);
+                  }}
+                  onBlur={() => {
+                    void commitTitleEdit();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void commitTitleEdit();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      cancelTitleEdit();
+                    }
+                  }}
+                />
+              ) : (
+                <>
+                  <span className="chat-view__banner-title">{session.title || t.unnamedSession}</span>
+                  {onSetTitle ? (
+                    <button
+                      type="button"
+                      className="chat-view__title-edit"
+                      title={t.editTitle}
+                      onClick={() => {
+                        setTitleInputValue(session.title || "");
+                        setEditingTitle(true);
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" />
+                      </svg>
+                    </button>
+                  ) : null}
+                </>
+              )}
               {showTagInput ? (
                 <input
                   ref={tagInputRef}

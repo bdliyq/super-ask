@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let users install and run Super Ask with `npm install -g` or `npx` without cloning the repository, while preserving Web UI serving, rule deployment, and the existing Python CLI flow.
+**Goal:** Let users install and run Super Ask with `npm install -g` or `npx` without cloning the repository, while preserving Web UI serving, rule deployment, and the existing Node CLI flow.
 
 **Architecture:** Publish a root-level npm package that keeps the current repo-like runtime layout (`server/dist`, `server/static`, `rules`, `cli`) so the existing static-file and template-loading paths stay predictable. Remove the rule/template dependency on `install.sh` by rendering a package-safe daemon start command from `DeployManager`, while keeping source installs working.
 
-**Tech Stack:** npm, Node.js 18+, tsup, Vite, Python 3 CLI, TypeScript server/UI build.
+**Tech Stack:** npm, Node.js 18+, tsup, Vite, Node CLI, TypeScript server/UI build.
 
 ---
 
@@ -14,7 +14,7 @@
 
 - Public install target is a root-level npm package, not a bare `server/` subpackage.
 - Public runtime entry is `super-ask start --daemon|status|stop`; `install.sh` stays as a source-install helper, not part of the packaged runtime contract.
-- Non-goal for this phase: removing the Python 3 dependency from `cli/super-ask.py`.
+- Non-goal for this phase: changing the Super Ask HTTP protocol or agent-facing request format.
 - Non-goal for this phase: changing the Super Ask HTTP protocol or agent-facing request format.
 
 ## Evidence Driving The Design
@@ -23,7 +23,7 @@
   - `../static` resolves to `server/static`
   - `../../` resolves to the package root
 - `server/src/deployManager.ts` reads `rules/` and injects absolute paths for:
-  - `cli/super-ask.py`
+  - `cli/super-ask.js`
   - `install.sh`
 - `ui/vite.config.ts` builds the UI into `server/static`
 - Current rules and `rules/super-ask-opencode-tool.ts` still tell agents to start the server with `bash "{{SUPER_ASK_INSTALL_SH}}"`, which is source-layout-specific and not a good packaged-install contract
@@ -41,7 +41,7 @@ Keep the published tarball root aligned with the current repository root:
     static/
   rules/
   cli/
-    super-ask.py
+    super-ask.js
   install.sh         # optional; source-install helper only
 ```
 
@@ -141,7 +141,7 @@ Expected:
 
 - the tarball contains `server/dist/index.js`
 - the tarball contains `server/static/index.html` and hashed assets
-- the tarball contains `rules/` and `cli/super-ask.py`
+- the tarball contains `rules/` and `cli/super-ask.js`
 
 ---
 
@@ -166,7 +166,7 @@ const serverBin = join(this.projectRoot, "server", "dist", "index.js");
 const startCmd = `node "${serverBin}" start --daemon --port 19960`;
 const replacements = new Map<string, string>([
   ["{{SUPER_ASK_ROOT}}", this.projectRoot],
-  ["{{SUPER_ASK_CLI}}", join(this.projectRoot, "cli", "super-ask.py")],
+  ["{{SUPER_ASK_CLI}}", join(this.projectRoot, "cli", "super-ask.js")],
   ["{{SUPER_ASK_SERVER_BIN}}", serverBin],
   ["{{SUPER_ASK_START_CMD}}", startCmd]
 ]);
@@ -317,7 +317,7 @@ HOME="$TMP_HOME" npx super-ask start --daemon --port 19961
 
 HEALTH_OK=0
 for i in $(seq 1 10); do
-  if python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:19961/health', timeout=2).read().decode())"; then
+  if node -e "fetch('http://127.0.0.1:19961/health').then(async (r) => { if (!r.ok) process.exit(1); console.log(await r.text()); }).catch(() => process.exit(1))"; then
     HEALTH_OK=1
     break
   fi
@@ -337,7 +337,7 @@ popd >/dev/null
 After the health check, fetch `/` and confirm HTML is returned:
 
 ```bash
-python3 -c "import urllib.request; html=urllib.request.urlopen('http://127.0.0.1:19961/', timeout=5).read().decode(); assert '<!doctype html' in html.lower()"
+node -e "fetch('http://127.0.0.1:19961/').then(async (r) => { const html = (await r.text()).toLowerCase(); if (!html.includes('<!doctype html')) process.exit(1); }).catch(() => process.exit(1))"
 ```
 
 - [ ] **Step 3: Verify deploy-time assets are present in the installed package**
@@ -346,7 +346,7 @@ Add checks inside the smoke script for:
 
 ```bash
 test -f node_modules/super-ask/rules/super-ask-codex.md
-test -f node_modules/super-ask/cli/super-ask.py
+test -f node_modules/super-ask/cli/super-ask.js
 test -f node_modules/super-ask/server/static/index.html
 test -f "$TMP_HOME/.super-ask/super-ask.pid"
 ```
@@ -363,37 +363,38 @@ Expected:
 With the smoke-test server still running, deploy a Codex user-scoped rule into the isolated HOME and assert the rendered file references the packaged daemon start command instead of `install.sh`:
 
 ```bash
-TMP_HOME="$TMP_HOME" python3 - <<'PY'
-import json
-import os
-import pathlib
-import urllib.request
+TMP_HOME="$TMP_HOME" node - <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
 
-tmp_home = pathlib.Path(os.environ["TMP_HOME"])
-token = (tmp_home / ".super-ask" / "token").read_text().strip()
-payload = {"platforms": ["codex"], "workspacePath": "", "scope": "user"}
-req = urllib.request.Request(
-    "http://127.0.0.1:19961/api/deploy",
-    data=json.dumps(payload).encode("utf-8"),
-    headers={
-        "Content-Type": "application/json",
-        "X-Super-Ask-Token": token,
+(async () => {
+  const tmpHome = process.env.TMP_HOME;
+  const token = fs.readFileSync(path.join(tmpHome, ".super-ask", "token"), "utf8").trim();
+  const response = await fetch("http://127.0.0.1:19961/api/deploy", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Super-Ask-Token": token,
     },
-    method="POST",
-)
-print(urllib.request.urlopen(req, timeout=10).read().decode("utf-8"))
-PY
+    body: JSON.stringify({ platforms: ["codex"], workspacePath: "", scope: "user" }),
+  });
+  console.log(await response.text());
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+NODE
 
-TMP_HOME="$TMP_HOME" python3 - <<'PY'
-import os
-import pathlib
+TMP_HOME="$TMP_HOME" node - <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
 
-agents = pathlib.Path(os.environ["TMP_HOME"]) / ".codex" / "AGENTS.md"
-text = agents.read_text()
-assert "server/dist/index.js" in text
-assert "start --daemon --port 19960" in text
-assert "install.sh" not in text
-PY
+const agents = path.join(process.env.TMP_HOME, ".codex", "AGENTS.md");
+const text = fs.readFileSync(agents, "utf8");
+if (!text.includes("server/dist/index.js")) process.exit(1);
+if (!text.includes("start --daemon --port 19960")) process.exit(1);
+if (text.includes("install.sh")) process.exit(1);
+NODE
 ```
 
 ---
@@ -405,12 +406,12 @@ PY
 - Modify: `rules/*`
 - Modify: release notes or migration notes file if the repo uses one
 
-- [ ] **Step 1: Call out the remaining Python dependency**
+- [ ] **Step 1: Call out the Node-only CLI dependency**
 
 Document this explicitly:
 
 ```md
-npm 安装解决的是“无需 clone 源码仓库”；如果 Agent 规则仍通过 `cli/super-ask.py` 调用 Super Ask，用户机器仍需要 `python3`。
+npm 安装解决的是“无需 clone 源码仓库”；如果 Agent 规则通过 `cli/super-ask.js` 调用 Super Ask，用户机器只需要 `node`。
 ```
 
 - [ ] **Step 2: Document the canonical start path**

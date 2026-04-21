@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.1.7 (2026-04-21)
+
+### Features
+
+- **CLI (Node)** — primary CLI is now `cli/super-ask.js` (Python `cli/super-ask.py` removed). Platform-specific helpers ship as `super-ask-codex.js`, `super-ask-cursor.js`, and `super-ask-vscode-hook.js`, each with companion `.test.cjs` coverage.
+- **Session title API & manual titles** — `POST /api/session-title` lets the Web UI rename a session; `SessionInfo.titleManuallySet` prevents later agent `title` fields from overwriting user-chosen titles. WebSocket adds `session_title_update`.
+- **Predefined messages: structured storage & sync** — predefined messages are normalized to `{ id, text, active }`; saving via `PUT /api/predefined-msgs` broadcasts `predefined_msgs_sync` so all clients stay aligned with `~/.super-ask/predefined-msgs.json`.
+- **New request resume / dedup (WebSocket)** — `new_request` always broadcasts (including deduplicated CLI retries / server restarts), with optional `requestId` and `resumed` so the UI can re-notify without duplicating history rows.
+- **Session capacity** — when `maxSessions` is reached, the server evicts the stalest inactive session (no pending) before rejecting new asks, instead of failing immediately once at capacity.
+- **Deploy engine** — Cursor hooks use a broader event list and updated marker naming; Codex hooks cover additional events with dedicated CLI filenames; optional VS Code hook deployment via `super-ask-vscode-hooks.json` / `super-ask-vscode-hook.js`.
+- **UI** — document drawer gains a CodeMirror-based editor pipeline (`CodeEditor.tsx`, language helpers, body resize utilities), ChatView/session UX updates (e.g. inline title edit), DeployPanel and Markdown/path handling improvements, and expanded tests.
+
+### Fixes / behavior
+
+- **User reply history** — websocket replies no longer append a super-ask tool hint to stored user message text; history matches what the user sees.
+
+### Docs
+
+- Internal superpowers plans added for Codex hook isolation, Codex subagent transcript enrichment, and VS Code Copilot hook phase 1.
+
 ## v1.1.6 (2026-04-18)
 
 ### Features
