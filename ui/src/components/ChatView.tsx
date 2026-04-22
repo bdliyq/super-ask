@@ -29,6 +29,12 @@ interface ChatViewProps {
   onSetFileDrawerData?: (data: ReadFileResponse | null) => void;
   autoReplyTemplates?: AutoReplyTemplate[];
   onSetAutoReply?: (chatSessionId: string, templateId: string | null) => void;
+  quotedRefs?: QuotedRef[];
+  onAppendQuotedRef?: (ref: QuotedRef) => void;
+  onRemoveQuotedRef?: (index: number) => void;
+  onClearQuotedRefs?: () => void;
+  forwardSessions?: SessionInfo[];
+  onForwardQuotedRef?: (chatSessionId: string, ref: QuotedRef) => void;
 }
 
 function groupInteractions(history: HistoryEntry[]) {
@@ -63,15 +69,21 @@ export function ChatView({
   onSetFileDrawerData,
   autoReplyTemplates = [],
   onSetAutoReply,
+  quotedRefs = [],
+  onAppendQuotedRef,
+  onRemoveQuotedRef,
+  onClearQuotedRefs,
+  forwardSessions = [],
+  onForwardQuotedRef,
 }: ChatViewProps) {
   const { t, locale } = useI18n();
   const messagesRef = useRef<HTMLDivElement>(null);
   const pinPanelRef = useRef<HTMLDivElement>(null);
-  const [quotedRefs, setQuotedRefs] = useState<QuotedRef[]>([]);
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagInputValue, setTagInputValue] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInputValue, setTitleInputValue] = useState("");
+  const [forwardingRef, setForwardingRef] = useState<QuotedRef | null>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const titleCommitInFlightRef = useRef(false);
@@ -195,6 +207,10 @@ export function ChatView({
     setTitleInputValue(session?.title ?? "");
   }, [session?.chatSessionId, session?.title]);
 
+  useEffect(() => {
+    setForwardingRef(null);
+  }, [session?.chatSessionId]);
+
   const scrollToCard = useCallback((index: number) => {
     const anchor = document.getElementById(`interaction-${index}`);
     const container = messagesRef.current;
@@ -223,6 +239,17 @@ export function ChatView({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showPinPanel, onSetShowPinPanel]);
+
+  useEffect(() => {
+    if (!forwardingRef) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setForwardingRef(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [forwardingRef]);
 
   const prevSessionId = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -280,6 +307,7 @@ export function ChatView({
 
   const lastAgent = [...session.history].reverse().find((h) => h.role === "agent");
   const options = lastAgent?.options;
+  const resolvedForwardSessions = forwardSessions.length > 0 ? forwardSessions : [session];
 
   return (
     <div className="chat-view">
@@ -422,7 +450,12 @@ export function ChatView({
                         index={i}
                         agentEntry={g.agent}
                         userEntry={g.user}
-                        onQuote={(ref) => setQuotedRefs((prev) => [...prev, ref])}
+                        onQuote={onAppendQuotedRef}
+                        onForward={
+                          onForwardQuotedRef
+                            ? (ref) => setForwardingRef(ref)
+                            : undefined
+                        }
                         isPinned={pinnedSet.has(i)}
                         onTogglePin={handleTogglePin}
                         isAcked={acked}
@@ -439,8 +472,8 @@ export function ChatView({
                 queuedReplies={queuedReplies}
                 onRemoveQueuedReply={onRemoveQueuedReply}
                 quotedRefs={quotedRefs}
-                onRemoveQuotedRef={(idx) => setQuotedRefs((prev) => prev.filter((_, i) => i !== idx))}
-                onClearQuotedRefs={() => setQuotedRefs([])}
+                onRemoveQuotedRef={onRemoveQuotedRef}
+                onClearQuotedRefs={onClearQuotedRefs}
                 onSend={async (feedback, attachments) =>
                   onSendReply(session.chatSessionId, feedback, attachments)
                 }
@@ -495,6 +528,72 @@ export function ChatView({
           onClose={() => onSetFileDrawerData?.(null)}
           onOpenInFinder={handleOpenInFinder}
         />
+      )}
+      {forwardingRef && (
+        <div
+          className="chat-view__forward-dialog-backdrop"
+          onClick={() => setForwardingRef(null)}
+        >
+          <div
+            className="chat-view__forward-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t.forwardToSession}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="chat-view__forward-dialog-header">
+              <span>{t.forwardToSession}</span>
+              <button
+                type="button"
+                className="chat-view__forward-dialog-close"
+                onClick={() => setForwardingRef(null)}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
+              </button>
+            </div>
+            <div className="chat-view__forward-session-list">
+              {resolvedForwardSessions.length > 0 ? (
+                resolvedForwardSessions.map((targetSession) => (
+                  <button
+                    key={targetSession.chatSessionId}
+                    type="button"
+                    className="chat-view__forward-session-option"
+                    onClick={() => {
+                      onForwardQuotedRef?.(targetSession.chatSessionId, {
+                        ...forwardingRef,
+                        sourceSessionId: session.chatSessionId,
+                        sourceSessionTitle: session.title || t.unnamedSession,
+                      });
+                      setForwardingRef(null);
+                    }}
+                  >
+                    <span className="chat-view__forward-session-title">
+                      {targetSession.title || t.unnamedSession}
+                    </span>
+                    <span className="chat-view__forward-session-badges">
+                      <SourceBadge source={targetSession.source} />
+                      <RequestStatusBadge status={targetSession.requestStatus} />
+                    </span>
+                    {(targetSession.tags?.length ?? 0) > 0 && (
+                      <span className="session-tabs__tags">
+                        {targetSession.tags!.map((tag) => (
+                          <span key={tag} className="session-tabs__tag">
+                            {tag}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                    <span className="chat-view__forward-session-meta">
+                      {targetSession.chatSessionId}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <div className="chat-view__forward-session-empty">{t.noForwardSessions}</div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

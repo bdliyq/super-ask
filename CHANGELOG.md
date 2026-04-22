@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.8 (2026-04-22)
+
+### Features
+
+- **Cross-session forwarding** — summary / question / feedback cards now expose a forward action. Users can pick another session, carry the selected content into that session's reply box as quoted markdown, and keep the source session title attached for context.
+
+### Fixes / behavior
+
+- **Session-scoped quoted refs** — pending quoted snippets are now stored per session and cleaned up when sessions disappear, preventing quote state from leaking across chat switches while enabling cross-session forwarding.
+
+### Tests
+
+- **UI forwarding coverage** — add regression tests for forward action rendering, forward dialog target selection, and forwarded quote markdown formatting.
+
 ## v1.1.7 (2026-04-21)
 
 ### Features

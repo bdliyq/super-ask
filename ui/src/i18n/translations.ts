@@ -160,6 +160,12 @@ export interface Translations {
   quoteSummary: string;
   quoteQuestion: string;
   quoteFeedback: string;
+  forwardSummary: string;
+  forwardQuestion: string;
+  forwardFeedback: string;
+  forwardToSession: string;
+  forwardedFrom: string;
+  noForwardSessions: string;
   summary: string;
 
   pin: string;
@@ -338,6 +344,12 @@ export const zh: Translations = {
   quoteSummary: "引用摘要",
   quoteQuestion: "引用问题",
   quoteFeedback: "引用回复",
+  forwardSummary: "转发摘要",
+  forwardQuestion: "转发问题",
+  forwardFeedback: "转发回复",
+  forwardToSession: "转发到会话",
+  forwardedFrom: "转发自",
+  noForwardSessions: "暂无可转发会话",
   summary: "SUMMARY",
 
   pin: "Pin",
@@ -511,6 +523,12 @@ export const en: Translations = {
   quoteSummary: "Quote summary",
   quoteQuestion: "Quote question",
   quoteFeedback: "Quote feedback",
+  forwardSummary: "Forward summary",
+  forwardQuestion: "Forward question",
+  forwardFeedback: "Forward feedback",
+  forwardToSession: "Forward to session",
+  forwardedFrom: "Forwarded from",
+  noForwardSessions: "No available sessions",
   summary: "SUMMARY",
 
   pin: "Pin",

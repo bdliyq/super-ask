@@ -109,6 +109,16 @@ function truncateText(text: string, maxLen: number): string {
   return single.length > maxLen ? single.slice(0, maxLen) + "…" : single;
 }
 
+function formatQuotedRefLabel(ref: QuotedRef, locale: "zh" | "en", forwardedFrom: string): string {
+  const typeLabel = QUOTE_TYPE_LABELS[ref.type]?.[locale] ?? ref.type;
+  const parts = [`#${ref.index + 1}`, typeLabel];
+  const sourceTitle = ref.sourceSessionTitle ?? ref.sourceSessionId;
+  if (sourceTitle) {
+    parts.push(`${forwardedFrom} ${sourceTitle}`);
+  }
+  return parts.join(" · ");
+}
+
 export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [], onRemoveQueuedReply, quotedRefs = [], onRemoveQuotedRef, onClearQuotedRefs, onSend, connected, autoReplyTemplateId, autoReplyTemplates = [], onSetAutoReply }: ReplyBoxProps) {
   const { t, locale } = useI18n();
   const draftKey = DRAFT_PREFIX + chatSessionId;
@@ -170,7 +180,7 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
     if (quotedRefs.length > 0) {
       requestAnimationFrame(() => taRef.current?.focus());
     }
-  }, [quotedRefs.length]);
+  }, [chatSessionId, quotedRefs.length]);
 
   useEffect(() => {
     if (!showAutoReplyMenu) return;
@@ -324,9 +334,9 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
     let fullText = trimmed;
     if (quotedRefs.length > 0) {
       const quoteParts = quotedRefs.map((ref) => {
-        const label = QUOTE_TYPE_LABELS[ref.type]?.[locale as "zh" | "en"] ?? ref.type;
+        const label = formatQuotedRefLabel(ref, locale as "zh" | "en", t.forwardedFrom);
         const lines = ref.text.split("\n").map((l) => `> ${l}`).join("\n");
-        return `> **[#${ref.index + 1} ${label}]**\n${lines}`;
+        return `> **[${label}]**\n${lines}`;
       });
       fullText = quoteParts.join("\n\n") + "\n\n" + trimmed;
     }
@@ -345,7 +355,7 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
         error instanceof Error ? error.message : (locale === "zh" ? "发送失败" : "Send failed");
       setUploadError(message);
     }
-  }, [attachments, draftKey, locale, onClearQuotedRefs, onSend, quotedRefs, text]);
+  }, [attachments, draftKey, locale, onClearQuotedRefs, onSend, quotedRefs, t.forwardedFrom, text]);
 
   const autoResizeTextarea = useCallback(() => {
     const ta = taRef.current;
@@ -508,12 +518,12 @@ export function ReplyBox({ hasPending, chatSessionId, options, queuedReplies = [
       {quotedRefs.length > 0 && (
         <div className="reply-box__quoted-refs" role="list">
           {quotedRefs.map((ref, i) => {
-            const label = QUOTE_TYPE_LABELS[ref.type]?.[locale as "zh" | "en"] ?? ref.type;
+            const label = formatQuotedRefLabel(ref, locale as "zh" | "en", t.forwardedFrom);
             return (
               <div key={i} className="reply-box__quoted-ref" role="listitem">
                 <div className="reply-box__quoted-ref-bar" />
                 <div className="reply-box__quoted-ref-body">
-                  <span className="reply-box__quoted-ref-label">#{ref.index + 1} · {label}</span>
+                  <span className="reply-box__quoted-ref-label">{label}</span>
                   <span className="reply-box__quoted-ref-text">{truncateText(ref.text, 80)}</span>
                 </div>
                 {onRemoveQuotedRef && (

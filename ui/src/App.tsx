@@ -8,6 +8,7 @@ import type { AutoReplyTemplate, FileAttachment, ReadFileResponse, WsServerMessa
 import { useSessions } from "./hooks/useSessions";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useI18n } from "./i18n";
+import type { QuotedRef } from "./components/InteractionCard";
 import {
   emitPredefinedMsgsSync,
   getActivePredefinedSuffix,
@@ -264,12 +265,29 @@ export default function App() {
 
   const replyQueueRef = useRef<Map<string, QueuedReply[]>>(loadQueueFromStorage());
   const [queuedMessages, setQueuedMessages] = useState<Map<string, QueuedReply[]>>(() => loadQueueFromStorage());
+  const [quotedRefsBySession, setQuotedRefsBySession] = useState<Record<string, QuotedRef[]>>({});
 
   const syncQueueState = useCallback(() => {
     const next = new Map(replyQueueRef.current);
     setQueuedMessages(next);
     saveQueueToStorage(next);
   }, []);
+
+  useEffect(() => {
+    setQuotedRefsBySession((prev) => {
+      const existingSessionIds = new Set(sortedSessions.map((session) => session.chatSessionId));
+      let changed = false;
+      const next: Record<string, QuotedRef[]> = {};
+      for (const [chatSessionId, refs] of Object.entries(prev)) {
+        if (existingSessionIds.has(chatSessionId)) {
+          next[chatSessionId] = refs;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [sortedSessions]);
 
   const sendReplyRef = useRef<typeof sendReply>(null!);
 
@@ -411,6 +429,38 @@ export default function App() {
     [sendDeleteSession],
   );
 
+  const appendQuotedRefForSession = useCallback((chatSessionId: string, ref: QuotedRef) => {
+    setQuotedRefsBySession((prev) => ({
+      ...prev,
+      [chatSessionId]: [...(prev[chatSessionId] ?? []), ref],
+    }));
+  }, []);
+
+  const removeQuotedRefForSession = useCallback((chatSessionId: string, index: number) => {
+    setQuotedRefsBySession((prev) => ({
+      ...prev,
+      [chatSessionId]: (prev[chatSessionId] ?? []).filter((_, itemIndex) => itemIndex !== index),
+    }));
+  }, []);
+
+  const clearQuotedRefsForSession = useCallback((chatSessionId: string) => {
+    setQuotedRefsBySession((prev) => {
+      if (!prev[chatSessionId] || prev[chatSessionId].length === 0) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [chatSessionId]: [],
+      };
+    });
+  }, []);
+
+  const handleForwardQuotedRef = useCallback((chatSessionId: string, ref: QuotedRef) => {
+    appendQuotedRefForSession(chatSessionId, ref);
+    setActiveSession(chatSessionId);
+    setView("chat");
+  }, [appendQuotedRefForSession, setActiveSession]);
+
   const fileDrawerOpen = Boolean(activeSessionId && sessionFileOpen[activeSessionId]);
   const fileDrawerData = activeSessionId
     ? (sessionFileMap[activeSessionId] ?? null)
@@ -488,6 +538,12 @@ export default function App() {
             connected={connected}
             queuedReplies={activeSessionId ? (queuedMessages.get(activeSessionId) || []) : []}
             onRemoveQueuedReply={activeSessionId ? (index: number) => onRemoveQueuedReply(activeSessionId, index) : undefined}
+            quotedRefs={activeSessionId ? (quotedRefsBySession[activeSessionId] ?? []) : []}
+            onAppendQuotedRef={activeSessionId ? (ref) => appendQuotedRefForSession(activeSessionId, ref) : undefined}
+            onRemoveQuotedRef={activeSessionId ? (index) => removeQuotedRefForSession(activeSessionId, index) : undefined}
+            onClearQuotedRefs={activeSessionId ? () => clearQuotedRefsForSession(activeSessionId) : undefined}
+            forwardSessions={sortedSessions}
+            onForwardQuotedRef={handleForwardQuotedRef}
             terminalSlot={
               <TerminalDrawer
                 open={terminalOpen}

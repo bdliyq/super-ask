@@ -66,6 +66,8 @@ export interface QuotedRef {
   type: QuoteType;
   text: string;
   index: number;
+  sourceSessionId?: string;
+  sourceSessionTitle?: string;
 }
 
 export interface InteractionCardProps {
@@ -73,6 +75,7 @@ export interface InteractionCardProps {
   agentEntry: HistoryEntry;
   userEntry?: HistoryEntry;
   onQuote?: (ref: QuotedRef) => void;
+  onForward?: (ref: QuotedRef) => void;
   isPinned?: boolean;
   onTogglePin?: (index: number) => void;
   isAcked?: boolean;
@@ -98,7 +101,19 @@ function QuoteButton({ onClick, title, variant }: { onClick: () => void; title: 
   );
 }
 
-export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinned, onTogglePin, isAcked, onOpenPath }: InteractionCardProps) {
+function ForwardButton({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button type="button" className="entry-section__quote-btn" title={title} onClick={onClick}>
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 1.75v6.5" />
+        <path d="M5.25 4.5 8 1.75 10.75 4.5" />
+        <path d="M4 6.75v5.5c0 .69.56 1.25 1.25 1.25h5.5c.69 0 1.25-.56 1.25-1.25v-5.5" />
+      </svg>
+    </button>
+  );
+}
+
+export function InteractionCard({ index, agentEntry, userEntry, onQuote, onForward, isPinned, onTogglePin, isAcked, onOpenPath }: InteractionCardProps) {
   const { t } = useI18n();
   const statusKind = getEntryStatus(userEntry);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -201,6 +216,12 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
                       onClick={() => onQuote({ type: "summary", text: agentEntry.summary!, index })}
                     />
                   )}
+                  {onForward && (
+                    <ForwardButton
+                      title={t.forwardSummary}
+                      onClick={() => onForward({ type: "summary", text: agentEntry.summary!, index })}
+                    />
+                  )}
                 </div>
               </div>
               <div className="summary-card__text markdown-body">
@@ -218,6 +239,12 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
                     <QuoteButton
                       title={t.quoteQuestion}
                       onClick={() => onQuote({ type: "question", text: agentEntry.question!, index })}
+                    />
+                  )}
+                  {onForward && (
+                    <ForwardButton
+                      title={t.forwardQuestion}
+                      onClick={() => onForward({ type: "question", text: agentEntry.question!, index })}
                     />
                   )}
                 </div>
@@ -238,6 +265,12 @@ export function InteractionCard({ index, agentEntry, userEntry, onQuote, isPinne
                       <QuoteButton
                         title={t.quoteFeedback}
                         onClick={() => onQuote({ type: "feedback", text: feedbackMd, index })}
+                      />
+                    )}
+                    {onForward && feedbackMd !== CANCELLED_FEEDBACK && (
+                      <ForwardButton
+                        title={t.forwardFeedback}
+                        onClick={() => onForward({ type: "feedback", text: feedbackMd, index })}
                       />
                     )}
                   </div>
